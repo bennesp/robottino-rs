@@ -47,6 +47,9 @@ jobs:
       - name: 🛡️ Security audit
         run: cargo audit
 
+      - name: 🧪 Doc tests
+        run: cargo test --doc --all-features
+
       - name: 🧪 Test (default)
         run: cargo llvm-cov --no-report
       - name: 🧪 Test (cloud)
@@ -55,8 +58,6 @@ jobs:
         run: cargo llvm-cov --no-report --features render
       - name: 🧪 Test (all features)
         run: cargo llvm-cov --no-report --all-features
-      - name: 🧪 Doc tests
-        run: cargo test --doc --all-features
 
       - name: 📊 Generate coverage report
         run: cargo llvm-cov report --summary-only --output-path coverage.json --json
