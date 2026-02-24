@@ -45,18 +45,18 @@ jobs:
         run: cargo audit
 
       - name: 🧪 Test (default)
-        run: cargo test
+        run: cargo llvm-cov --no-report
       - name: 🧪 Test (cloud)
-        run: cargo test --features cloud
+        run: cargo llvm-cov --no-report --features cloud
       - name: 🧪 Test (render)
-        run: cargo test --features render
+        run: cargo llvm-cov --no-report --features render
       - name: 🧪 Test (all features)
-        run: cargo test --all-features
+        run: cargo llvm-cov --no-report --all-features
       - name: 🧪 Doc tests
         run: cargo test --doc --all-features
 
-      - name: 📊 Generate coverage
-        run: cargo llvm-cov --all-features --summary-only --output-path coverage.json --json
+      - name: 📊 Generate coverage report
+        run: cargo llvm-cov report --summary-only --output-path coverage.json --json
       - name: 📝 Coverage summary
         run: |
           TOTAL=$(jq -r '.data[0].totals.lines.percent' coverage.json)
