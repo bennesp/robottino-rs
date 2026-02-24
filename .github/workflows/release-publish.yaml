@@ -1,10 +1,14 @@
-name: Release
+name: 🚀 Release & Publish
 
 on:
   push:
     tags:
       - "tuya-rs-v*"
       - "xplorer-rs-v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -13,6 +17,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lint-test:
+    name: 🔍 Lint & Test
+    uses: ./.github/workflows/lint-test.yaml
+
   parse:
     name: 🏷️ Parse tag
     runs-on: ubuntu-latest
@@ -35,32 +43,9 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-  check:
-    name: 🔍 Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v6
-      - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: 📦 Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: 🎨 Format check
-        run: cargo fmt --all -- --check
-
-      - name: 📎 Clippy (all features)
-        run: cargo clippy --all-features -- -D warnings
-
-      - name: 🧪 Test (all features)
-        run: cargo test --all-features
-
   release:
     name: 🚀 Release
-    needs: [parse, check]
+    needs: [lint-test, parse]
     runs-on: ubuntu-latest
     permissions:
       contents: write

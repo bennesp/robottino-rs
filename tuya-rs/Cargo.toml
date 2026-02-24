@@ -2,6 +2,7 @@
 name = "tuya-rs"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Tuya v3.3 local device protocol — TCP connection, packet codec, AES encryption"
 license = "MIT"
 repository = "https://github.com/bennesp/robottino-rs"

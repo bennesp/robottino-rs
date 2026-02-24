@@ -1,9 +1,14 @@
-name: CI
+name: 🔍 Lint & Test
 
 on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -22,21 +27,29 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
       - name: 📦 Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: 🎨 Format check
+      - name: 🎨 Format
         run: cargo fmt --all -- --check
-
-      - name: 📎 Clippy (all features)
+      - name: 📎 Clippy
         run: cargo clippy --all-features -- -D warnings
+      - name: 🛡️ Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+      - name: 🛡️ Security audit
+        run: cargo audit
 
-      - name: 🧪 Test (default features)
+      - name: 🧪 Test (default)
         run: cargo test
-
+      - name: 🧪 Test (cloud)
+        run: cargo test --features cloud
+      - name: 🧪 Test (render)
+        run: cargo test --features render
       - name: 🧪 Test (all features)
         run: cargo test --all-features
-
-      - name: 📖 Doc build
+      - name: 🧪 Doc tests
+        run: cargo test --doc --all-features
+      - name: 📖 Doc
         run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
