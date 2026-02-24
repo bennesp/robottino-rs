@@ -103,6 +103,28 @@ pub struct XPlorer {
 
 impl XPlorer {
     /// Connect to an X-Plorer vacuum at the given device config.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use xplorer_rs::XPlorer;
+    /// use xplorer_rs::device::Device;
+    /// use xplorer_rs::protocol::RoomCleanCommand;
+    /// use tuya_rs::connection::DeviceConfig;
+    ///
+    /// let config = DeviceConfig {
+    ///     dev_id: "my_device_id".into(),
+    ///     address: "192.168.1.100".into(),
+    ///     local_key: "0123456789abcdef".into(),
+    ///     ..Default::default()
+    /// };
+    /// let mut robot = XPlorer::connect(&config).unwrap();
+    /// let state = robot.status().unwrap();
+    /// println!("battery: {}%", state.battery);
+    ///
+    /// let cmd = RoomCleanCommand { clean_times: 1, room_ids: vec![0, 2] };
+    /// robot.clean_rooms(&cmd).unwrap();
+    /// ```
     pub fn connect(config: &DeviceConfig) -> Result<Self, DeviceError> {
         Ok(Self {
             conn: TuyaConnection::connect(config)?,
@@ -380,6 +402,19 @@ impl Device for XPlorer {
 }
 
 /// Parse a DPS JSON response into DpsEvent list.
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::device::parse_dps_response;
+/// use xplorer_rs::types::{DpsEvent, Mode};
+///
+/// let json = r#"{"dps":{"1":true,"4":"smart","8":72}}"#;
+/// let events = parse_dps_response(json).unwrap();
+/// assert!(events.contains(&DpsEvent::Power(true)));
+/// assert!(events.contains(&DpsEvent::Mode(Mode::Smart)));
+/// assert!(events.contains(&DpsEvent::Battery(72)));
+/// ```
 pub fn parse_dps_response(json: &str) -> Result<Vec<DpsEvent>, DeviceError> {
     let val: serde_json::Value = serde_json::from_str(json)
         .map_err(|e| DeviceError::InvalidResponse(format!("invalid JSON: {e}")))?;

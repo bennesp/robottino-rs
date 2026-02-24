@@ -141,6 +141,17 @@ impl Zone {
     ///
     /// The corners are (x1, y1) = bottom-left and (x2, y2) = top-right
     /// (y-axis points up, matching the robot's coordinate system).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::Zone;
+    ///
+    /// let zone = Zone::rect(82, -13, 453, 203);
+    /// // Vertices: TL, TR, BR, BL
+    /// assert_eq!(zone.vertices[0], (82, 203));   // top-left
+    /// assert_eq!(zone.vertices[2], (453, -13));   // bottom-right
+    /// ```
     pub fn rect(x1: i16, y1: i16, x2: i16, y2: i16) -> Self {
         Zone {
             vertices: [
@@ -160,6 +171,21 @@ impl Zone {
     ///
     /// Use the map's `theta` value (typically `route_header.theta as f64 / 100.0`)
     /// to compensate for the coordinate system rotation relative to room walls.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::Zone;
+    ///
+    /// // 0° rotation produces the same result as Zone::rect
+    /// let plain = Zone::rect(100, 200, 300, 400);
+    /// let rotated = Zone::rotated_rect(100, 200, 300, 400, 0.0);
+    /// assert_eq!(plain.vertices, rotated.vertices);
+    ///
+    /// // Compensate for map theta of 2.7°
+    /// let zone = Zone::rotated_rect(82, -13, 453, 203, 2.7);
+    /// assert_ne!(zone.vertices, plain.vertices);
+    /// ```
     pub fn rotated_rect(x1: i16, y1: i16, x2: i16, y2: i16, angle_deg: f64) -> Self {
         let cx = (x1 as f64 + x2 as f64) / 2.0;
         let cy = (y1 as f64 + y2 as f64) / 2.0;
@@ -364,6 +390,17 @@ pub struct SweeperMessage {
 
 impl SweeperMessage {
     /// Decode from raw bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::SweeperMessage;
+    ///
+    /// let bytes = [0xAA, 0x00, 0x04, 0x15, 0x01, 0x01, 0x04, 0x1B];
+    /// let msg = SweeperMessage::decode(&bytes).unwrap();
+    /// assert_eq!(msg.cmd, 0x15);
+    /// assert!(msg.checksum_ok);
+    /// ```
     pub fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         if bytes.len() < 4 {
             return Err(ProtocolError::TooShort(bytes.len()));
@@ -399,6 +436,16 @@ impl SweeperMessage {
     }
 
     /// Decode from base64 string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::SweeperMessage;
+    ///
+    /// let msg = SweeperMessage::decode_base64("qgAEFQEBBBs=").unwrap();
+    /// assert_eq!(msg.cmd, 0x15);
+    /// assert_eq!(msg.data, vec![0x01, 0x01, 0x04]);
+    /// ```
     pub fn decode_base64(s: &str) -> Result<Self, ProtocolError> {
         let bytes = base64::engine::general_purpose::STANDARD.decode(s)?;
         Self::decode(&bytes)

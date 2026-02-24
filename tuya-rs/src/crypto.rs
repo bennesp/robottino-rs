@@ -14,6 +14,18 @@ pub enum CryptoError {
 }
 
 /// AES-128-ECB encrypt with PKCS7 padding.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::crypto::{aes_ecb_encrypt, aes_ecb_decrypt};
+///
+/// let key = b"0123456789abcdef";
+/// let plaintext = b"hello world";
+/// let ciphertext = aes_ecb_encrypt(key, plaintext);
+/// let decrypted = aes_ecb_decrypt(key, &ciphertext).unwrap();
+/// assert_eq!(decrypted, plaintext);
+/// ```
 pub fn aes_ecb_encrypt(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
     let cipher = Aes128::new(key.into());
 
@@ -33,6 +45,17 @@ pub fn aes_ecb_encrypt(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
 }
 
 /// AES-128-ECB decrypt and remove PKCS7 padding.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::crypto::{aes_ecb_encrypt, aes_ecb_decrypt};
+///
+/// let key = b"0123456789abcdef";
+/// let ciphertext = aes_ecb_encrypt(key, b"secret data");
+/// let plaintext = aes_ecb_decrypt(key, &ciphertext).unwrap();
+/// assert_eq!(plaintext, b"secret data");
+/// ```
 pub fn aes_ecb_decrypt(key: &[u8; 16], data: &[u8]) -> Result<Vec<u8>, CryptoError> {
     if !data.len().is_multiple_of(16) || data.is_empty() {
         return Err(CryptoError::InvalidLength);

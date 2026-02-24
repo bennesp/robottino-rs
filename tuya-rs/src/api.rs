@@ -177,6 +177,25 @@ pub fn derive_aws4_signing_key(
 }
 
 /// Generate an AWS4-HMAC-SHA256 pre-signed URL.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::api::generate_presigned_url;
+///
+/// let url = generate_presigned_url(
+///     "/maps/lay.bin",
+///     "AKIAIOSFODNN7EXAMPLE",
+///     "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+///     "session-token",
+///     "my-bucket.s3.amazonaws.com",
+///     "eu-west-1",
+///     "20260101T120000Z",
+///     3600,
+/// );
+/// assert!(url.starts_with("https://"));
+/// assert!(url.contains("X-Amz-Signature="));
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn generate_presigned_url(
     path: &str,

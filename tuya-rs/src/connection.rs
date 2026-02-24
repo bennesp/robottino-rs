@@ -347,6 +347,18 @@ impl TuyaPacket {
 // ── Helpers ─────────────────────────────────────────────────
 
 /// Build a JSON payload for setting DPS values.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::connection::build_dps_json;
+/// use serde_json::json;
+///
+/// let payload = build_dps_json("device123", 1700000000, &[("1", json!(true))]);
+/// let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
+/// assert_eq!(parsed["devId"], "device123");
+/// assert_eq!(parsed["dps"]["1"], true);
+/// ```
 pub fn build_dps_json(dev_id: &str, timestamp: u64, dps: &[(&str, serde_json::Value)]) -> String {
     let mut dps_map = serde_json::Map::new();
     for (k, v) in dps {
@@ -382,6 +394,22 @@ pub struct TuyaConnection {
 
 impl TuyaConnection {
     /// Connect to a device over TCP/6668 (5 s timeout).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use tuya_rs::connection::{DeviceConfig, TuyaConnection, TuyaCommand};
+    ///
+    /// let config = DeviceConfig {
+    ///     dev_id: "my_device_id".into(),
+    ///     address: "192.168.1.100".into(),
+    ///     local_key: "0123456789abcdef".into(),
+    ///     ..Default::default()
+    /// };
+    /// let mut conn = TuyaConnection::connect(&config).unwrap();
+    /// let response = conn.send(TuyaCommand::DpQuery, b"{}".to_vec()).unwrap();
+    /// println!("payload: {:?}", String::from_utf8_lossy(&response.payload));
+    /// ```
     pub fn connect(config: &DeviceConfig) -> Result<Self, DeviceError> {
         let addr = format!("{}:{}", config.address, config.port);
         let sock_addr: std::net::SocketAddr = addr

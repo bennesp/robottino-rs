@@ -390,6 +390,22 @@ pub enum DpsEvent {
 
 impl DpsEvent {
     /// Parse a DP number and JSON value into a typed event.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::types::{DpsEvent, Mode, SuctionLevel};
+    /// use serde_json::json;
+    ///
+    /// let event = DpsEvent::parse(1, &json!(true)).unwrap();
+    /// assert_eq!(event, DpsEvent::Power(true));
+    ///
+    /// let event = DpsEvent::parse(4, &json!("smart")).unwrap();
+    /// assert_eq!(event, DpsEvent::Mode(Mode::Smart));
+    ///
+    /// let event = DpsEvent::parse(9, &json!("strong")).unwrap();
+    /// assert_eq!(event, DpsEvent::Suction(SuctionLevel::Strong));
+    /// ```
     pub fn parse(dp: u8, value: &Value) -> Result<Self, ParseError> {
         let err = |reason: &str| ParseError::InvalidDpValue {
             dp,
@@ -546,6 +562,26 @@ pub struct DeviceState {
 
 impl DeviceState {
     /// Build a device state from a DPS key-value map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde_json::json;
+    /// use xplorer_rs::types::{DeviceState, Mode, Status};
+    ///
+    /// let dps: HashMap<String, serde_json::Value> = serde_json::from_value(json!({
+    ///     "1": true,
+    ///     "4": "smart",
+    ///     "5": "cleaning",
+    ///     "8": 72
+    /// })).unwrap();
+    /// let state = DeviceState::from_dps(&dps).unwrap();
+    /// assert!(state.power);
+    /// assert_eq!(state.mode, Mode::Smart);
+    /// assert_eq!(state.status, Status::Cleaning);
+    /// assert_eq!(state.battery, 72);
+    /// ```
     pub fn from_dps(dps: &HashMap<String, Value>) -> Result<Self, ParseError> {
         let get_bool = |key: &str, default: bool| -> bool {
             dps.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
