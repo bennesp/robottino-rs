@@ -32,6 +32,9 @@ jobs:
           components: rustfmt, clippy, llvm-tools-preview
       - name: 📦 Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # Additive: also cache the instrumented build dir used by cargo-llvm-cov
+          cache-directories: target/llvm-cov-target
       - name: 🛡️ Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
       - name: 🔧 Install cargo-llvm-cov
