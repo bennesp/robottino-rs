@@ -4,13 +4,28 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum MapError {
     #[error("data too short for header: need {needed}, got {actual}")]
-    HeaderTooShort { needed: usize, actual: usize },
+    /// Data too short for header.
+    HeaderTooShort {
+        /// Minimum bytes needed.
+        needed: usize,
+        /// Bytes actually present.
+        actual: usize,
+    },
+    /// LZ4 decompression error.
     #[error("LZ4 decompression failed: {0}")]
     DecompressionFailed(String),
+    /// Pixel count mismatch after decompression.
     #[error("pixel count mismatch: expected {expected}, got {actual}")]
-    PixelCountMismatch { expected: usize, actual: usize },
+    PixelCountMismatch {
+        /// Expected pixel count (width x height).
+        expected: usize,
+        /// Actual decompressed pixel count.
+        actual: usize,
+    },
+    /// General format error.
     #[error("invalid format: {0}")]
     InvalidFormat(String),
+    /// PNG encoding error.
     #[error("PNG rendering failed: {0}")]
     RenderFailed(String),
 }
@@ -25,21 +40,34 @@ fn read_u16_be(data: &[u8], offset: usize) -> u16 {
 /// Layout file header (24 bytes = 12 x 2-byte BE pairs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LayoutHeader {
+    /// Header format version.
     pub version: u8,
+    /// Map identifier.
     pub map_id: u32,
+    /// Map type flag.
     pub map_type: u8,
+    /// Map width in pixels.
     pub width: u16,
+    /// Map height in pixels.
     pub height: u16,
+    /// X origin offset (div 10 for display).
     pub origin_x: u16,
+    /// Y origin offset (div 10 for display).
     pub origin_y: u16,
+    /// Map resolution (cm per pixel).
     pub resolution: u16,
+    /// Charger X position (div 10 for display).
     pub charge_x: u16,
+    /// Charger Y position (div 10 for display).
     pub charge_y: u16,
+    /// Total uncompressed byte count.
     pub total_count: u32,
+    /// LZ4 compressed data length (0 = uncompressed).
     pub compressed_length: u32,
 }
 
 impl LayoutHeader {
+    /// Parse a layout header from the first 24 bytes.
     pub fn parse(data: &[u8]) -> Result<Self, MapError> {
         if data.len() < 24 {
             return Err(MapError::HeaderTooShort {
@@ -68,14 +96,18 @@ impl LayoutHeader {
 /// Pixel type in the layout map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelType {
+    /// Outside/unexplored area.
     Outside,
+    /// Wall pixel.
     Wall,
     /// Room pixel. Value 0 = room_id 0 (default/first room), others = room_id * 4.
     Room(u8),
+    /// Unrecognized pixel value.
     Unknown(u8),
 }
 
 impl PixelType {
+    /// Classify a raw pixel byte into a pixel type.
     pub fn from_byte(b: u8) -> Self {
         match b {
             0xFF => PixelType::Outside,
@@ -89,19 +121,28 @@ impl PixelType {
 /// Room metadata from the layout file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoomMeta {
+    /// Room ID (0-based).
     pub id: u8,
+    /// Room name (UTF-8, user-assigned).
     pub name: Option<String>,
+    /// Color index in palette.
     pub color: Option<u8>,
+    /// Per-room fan/suction level.
     pub fan: u8,
+    /// Per-room mopping water level.
     pub water_level: u8,
+    /// Room boundary vertices (x, y) pairs.
     pub vertices: Vec<(u16, u16)>,
 }
 
 /// Decoded layout map.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutMap {
+    /// Parsed layout header.
     pub header: LayoutHeader,
+    /// Pixel grid (row-major, width x height).
     pub pixels: Vec<PixelType>,
+    /// Room metadata from the layout trailer.
     pub rooms: Vec<RoomMeta>,
 }
 
@@ -289,16 +330,24 @@ fn draw_line(
 /// Route file header (13 bytes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RouteHeader {
+    /// Header format version.
     pub version: u8,
+    /// Route identifier.
     pub route_id: u16,
+    /// Whether to force a display update.
     pub force_update: bool,
+    /// Route type flag.
     pub route_type: u8,
+    /// Number of route points.
     pub total_count: u32,
+    /// Map rotation angle (div 100 for degrees).
     pub theta: u16,
+    /// LZ4 compressed length (0 = uncompressed).
     pub compressed_length: u16,
 }
 
 impl RouteHeader {
+    /// Parse a route header from the first 13 bytes.
     pub fn parse(data: &[u8]) -> Result<Self, MapError> {
         if data.len() < 13 {
             return Err(MapError::HeaderTooShort {
@@ -324,7 +373,9 @@ impl RouteHeader {
 /// A single point in the cleaning route.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RoutePoint {
+    /// X coordinate (map units / 10).
     pub x: f32,
+    /// Y coordinate (map units / 10).
     pub y: f32,
 }
 
@@ -342,14 +393,19 @@ impl RoutePoint {
 /// Decoded cleaning route.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Route {
+    /// Parsed route header.
     pub header: RouteHeader,
+    /// Decoded route points.
     pub points: Vec<RoutePoint>,
 }
 
 // ── MapDecoder trait ───────────────────────────────────────
 
+/// Trait for decoding map binary files.
 pub trait MapDecoder {
+    /// Decode a layout binary file into a [`LayoutMap`].
     fn decode_layout(&self, data: &[u8]) -> Result<LayoutMap, MapError>;
+    /// Decode a route binary file into a [`Route`].
     fn decode_route(&self, data: &[u8]) -> Result<Route, MapError>;
 }
 

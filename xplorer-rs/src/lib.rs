@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+
 //! # xplorer-rs
 //!
 //! Local control library for X-Plorer Serie 75 S / Serie 95 S robot vacuum cleaners.
@@ -12,9 +14,13 @@
 //! - **`cloud`**: cloud API access (login, device discovery, map download via AWS STS)
 //! - **`render`**: PNG rendering of layout maps and cleaning routes
 
+/// Vacuum cleaner device control via Tuya TCP.
 pub mod device;
+/// Map file decoder (layout + route) with optional PNG rendering.
 pub mod map;
+/// DP 15 binary sweeper protocol: room/zone clean, forbidden zones, virtual walls.
 pub mod protocol;
+/// Device state model: DPS event parsing and enum types.
 pub mod types;
 
 // Re-export for convenience

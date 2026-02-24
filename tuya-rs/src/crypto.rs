@@ -2,10 +2,13 @@ use aes::Aes128;
 use cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use thiserror::Error;
 
+/// Cryptographic operation errors.
 #[derive(Debug, Error)]
 pub enum CryptoError {
+    /// PKCS7 padding is invalid.
     #[error("invalid padding")]
     InvalidPadding,
+    /// Data length is not a multiple of 16.
     #[error("data length must be a multiple of 16 for raw decryption")]
     InvalidLength,
 }

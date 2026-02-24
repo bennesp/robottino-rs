@@ -11,9 +11,13 @@ use crate::crypto;
 pub struct DeviceConfig {
     /// Tuya device ID (`devId`).
     pub dev_id: String,
+    /// Device IP address on local network.
     pub address: String,
+    /// AES-128 local key (16 ASCII characters).
     pub local_key: String,
+    /// Protocol version (default 3.3).
     pub version: f32,
+    /// TCP port (default 6668).
     pub port: u16,
 }
 
@@ -44,14 +48,19 @@ impl Default for DeviceConfig {
 /// Error type for device operations.
 #[derive(Debug, Error)]
 pub enum DeviceError {
+    /// TCP connection could not be established.
     #[error("TCP connection failed: {0}")]
     ConnectionFailed(String),
+    /// AES decryption produced invalid data.
     #[error("AES decryption failed")]
     DecryptionFailed,
+    /// Socket read timed out.
     #[error("socket timeout")]
     Timeout,
+    /// Response packet is malformed.
     #[error("invalid response: {0}")]
     InvalidResponse(String),
+    /// TCP connection was dropped.
     #[error("connection dropped")]
     Disconnected,
 }
@@ -68,18 +77,26 @@ const MAX_PACKET_SIZE: usize = 65_536;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum TuyaCommand {
+    /// Set device DPS values (cmd 7).
     Control = 7,
+    /// Status push from device (cmd 8).
     Status = 8,
+    /// Keep-alive ping (cmd 9).
     Heartbeat = 9,
+    /// Query device DPS state (cmd 10).
     DpQuery = 10,
+    /// Request refresh of specific DPS (cmd 18).
     UpdateDps = 18,
 }
 
 /// A raw Tuya v3.3 packet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuyaPacket {
+    /// Sequence number.
     pub seq_num: u32,
+    /// Command code.
     pub command: u32,
+    /// Decrypted payload bytes (typically JSON).
     pub payload: Vec<u8>,
 }
 
@@ -395,6 +412,7 @@ impl TuyaConnection {
         })
     }
 
+    /// Return the device ID.
     pub fn dev_id(&self) -> &str {
         &self.dev_id
     }
@@ -462,16 +480,22 @@ impl TuyaConnection {
 /// Possible DP value types for raw access.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DpValue {
+    /// Boolean value.
     Boolean(bool),
+    /// Integer value.
     Integer(i64),
+    /// String value.
     String(String),
+    /// Raw bytes (sent as base64).
     Raw(Vec<u8>),
 }
 
 /// Raw DPS update from the device.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DpsUpdate {
+    /// List of (DP number, value string) pairs.
     pub dps: Vec<(u8, String)>,
+    /// Optional update timestamp.
     pub timestamp: Option<u64>,
 }
 

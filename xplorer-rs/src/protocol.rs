@@ -1,18 +1,30 @@
 use base64::Engine;
 use thiserror::Error;
 
+/// Errors from decoding DP 15 sweeper messages.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
+    /// Message is shorter than minimum 4 bytes.
     #[error("message too short: need at least 4 bytes, got {0}")]
     TooShort(usize),
+    /// Start byte is not 0xAA.
     #[error("invalid start byte: expected 0xAA, got 0x{0:02X}")]
     InvalidStartByte(u8),
+    /// Base64 decoding failed.
     #[error("invalid base64: {0}")]
     InvalidBase64(#[from] base64::DecodeError),
+    /// Header length doesn't match actual data.
     #[error("length mismatch: header says {expected} bytes, got {actual}")]
-    LengthMismatch { expected: usize, actual: usize },
+    LengthMismatch {
+        /// Expected total byte count from header.
+        expected: usize,
+        /// Actual byte count received.
+        actual: usize,
+    },
+    /// Command byte doesn't match expected value.
     #[error("unexpected command 0x{0:02X} for RoomCleanStatusResponse (expected 0x15)")]
     UnexpectedCommand(u8),
+    /// Payload is too short for the expected response.
     #[error("payload too short for RoomCleanStatusResponse")]
     PayloadTooShort,
 }
@@ -21,15 +33,25 @@ pub enum ProtocolError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum CommandType {
+    /// Set virtual walls (0x12).
     SetVirtualWall = 0x12,
+    /// Virtual wall status response (0x13).
     VirtualWallStatus = 0x13,
+    /// Start room cleaning (0x14).
     SetRoomClean = 0x14,
+    /// Room clean status response (0x15).
     RoomCleanStatus = 0x15,
+    /// Request area clean (0x17).
     RequestAreaClean = 0x17,
+    /// Set forbidden zones (0x1A).
     SetVirtualArea = 0x1A,
+    /// Forbidden zone status response (0x1B).
     VirtualAreaStatus = 0x1B,
+    /// Start zone cleaning (0x28).
     SetZoneClean = 0x28,
+    /// Zone clean status response (0x29).
     ZoneCleanStatus = 0x29,
+    /// Custom data transfer (0x31).
     CustomizeData = 0x31,
 }
 
@@ -48,7 +70,9 @@ pub enum ForbiddenMode {
 /// A forbidden zone with its restriction mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForbiddenZone {
+    /// Restriction type (full ban, no sweep, no mop).
     pub mode: ForbiddenMode,
+    /// Rectangular zone coordinates.
     pub zone: Zone,
 }
 
@@ -57,14 +81,18 @@ pub struct ForbiddenZone {
 /// The robot will not cross this line during cleaning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Wall {
+    /// Start point (x, y) in map coordinates.
     pub start: (i16, i16),
+    /// End point (x, y) in map coordinates.
     pub end: (i16, i16),
 }
 
 /// A room cleaning command to send via DP 15.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomCleanCommand {
+    /// Number of cleaning passes per room.
     pub clean_times: u8,
+    /// Room IDs to clean.
     pub room_ids: Vec<u8>,
 }
 
@@ -104,6 +132,7 @@ impl RoomCleanCommand {
 /// For a simple axis-aligned rectangle, construct from two corners with [`Zone::rect`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Zone {
+    /// Four polygon vertices as (x, y) pairs in map coordinates.
     pub vertices: [(i16, i16); 4],
 }
 
@@ -201,7 +230,9 @@ fn encode_zone_frame(cmd: u8, first_byte: u8, zones: &[Zone]) -> Vec<u8> {
 /// `num_vertices` points (typically 4 for a rectangle).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZoneCleanCommand {
+    /// Number of cleaning passes.
     pub clean_times: u8,
+    /// Rectangular zones to clean.
     pub zones: Vec<Zone>,
 }
 
@@ -229,6 +260,7 @@ impl ZoneCleanCommand {
 /// Format: `aa <len> 0x1a <num_zones> [<mode> <num_pts=4> <coords...>]* <checksum>`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForbiddenZoneCommand {
+    /// Forbidden zones to set.
     pub zones: Vec<ForbiddenZone>,
 }
 
@@ -280,6 +312,7 @@ impl ForbiddenZoneCommand {
 /// Format: `aa <len> 0x12 <num_walls> [<x1> <y1> <x2> <y2>]* <checksum>`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VirtualWallCommand {
+    /// Virtual walls to set.
     pub walls: Vec<Wall>,
 }
 
@@ -321,8 +354,11 @@ impl VirtualWallCommand {
 /// A decoded DP 15 message from the vacuum cleaner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SweeperMessage {
+    /// Command byte.
     pub cmd: u8,
+    /// Payload data (without header and checksum).
     pub data: Vec<u8>,
+    /// Whether the checksum validated correctly.
     pub checksum_ok: bool,
 }
 
@@ -372,8 +408,11 @@ impl SweeperMessage {
 /// Parsed room clean status from the vacuum cleaner (cmd 0x15).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomCleanStatusResponse {
+    /// Number of cleaning passes.
     pub clean_times: u8,
+    /// Number of rooms being cleaned.
     pub num_rooms: u8,
+    /// IDs of rooms being cleaned.
     pub room_ids: Vec<u8>,
 }
 

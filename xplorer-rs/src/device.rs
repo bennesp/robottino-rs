@@ -32,29 +32,50 @@ pub fn xplorer_oem_credentials(app_device_id: impl Into<String>) -> tuya_rs::api
 
 /// Vacuum cleaner control via Tuya v3.3 TCP protocol.
 pub trait Device {
+    /// Query the full device state by triggering DPS updates.
     fn status(&mut self) -> Result<DeviceState, DeviceError>;
+    /// Turn the vacuum on (DP 1 = true).
     fn power_on(&mut self) -> Result<(), DeviceError>;
+    /// Turn the vacuum off (DP 1 = false).
     fn power_off(&mut self) -> Result<(), DeviceError>;
+    /// Pause the current operation (DP 2 = false).
     fn pause(&mut self) -> Result<(), DeviceError>;
+    /// Resume the current operation (DP 2 = true).
     fn resume(&mut self) -> Result<(), DeviceError>;
+    /// Send the vacuum back to the charging dock.
     fn charge_go(&mut self) -> Result<(), DeviceError>;
+    /// Make the vacuum emit a sound to help locate it.
     fn locate(&mut self) -> Result<(), DeviceError>;
+    /// Set the cleaning mode (smart, wall_follow, spiral, etc.).
     fn set_mode(&mut self, mode: Mode) -> Result<(), DeviceError>;
+    /// Start room-based cleaning for the specified rooms.
     fn clean_rooms(
         &mut self,
         cmd: &RoomCleanCommand,
     ) -> Result<Option<RoomCleanStatusResponse>, DeviceError>;
+    /// Start zone-based cleaning for the specified rectangular zones.
     fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError>;
+    /// Set forbidden zones (no-go, no-sweep, no-mop areas).
     fn set_forbidden_zones(&mut self, zones: &[ForbiddenZone]) -> Result<(), DeviceError>;
+    /// Clear all forbidden zones.
     fn clear_forbidden_zones(&mut self) -> Result<(), DeviceError>;
+    /// Set virtual wall barriers.
     fn set_virtual_walls(&mut self, walls: &[Wall]) -> Result<(), DeviceError>;
+    /// Clear all virtual walls.
     fn clear_virtual_walls(&mut self) -> Result<(), DeviceError>;
+    /// Query the current room cleaning status.
     fn query_room_status(&mut self) -> Result<Option<RoomCleanStatusResponse>, DeviceError>;
+    /// Set the suction power level.
     fn set_suction(&mut self, level: SuctionLevel) -> Result<(), DeviceError>;
+    /// Set the mopping water level.
     fn set_mop(&mut self, level: MopLevel) -> Result<(), DeviceError>;
+    /// Set the speaker volume (0-100).
     fn set_volume(&mut self, volume: u8) -> Result<(), DeviceError>;
+    /// Enable or disable Do Not Disturb mode.
     fn set_dnd(&mut self, enabled: bool) -> Result<(), DeviceError>;
+    /// Set a raw DP value and return any follow-up status update.
     fn set_value(&mut self, dp: u8, value: DpValue) -> Result<Option<DpsUpdate>, DeviceError>;
+    /// Send a raw DP 15 sweeper command and return the response.
     fn send_raw_command(
         &mut self,
         cmd: u8,
@@ -64,9 +85,11 @@ pub trait Device {
 
 /// Real-time listener for DPS changes.
 pub trait DeviceListener {
+    /// Start listening for DPS change events, calling the callback for each batch.
     fn listen<F>(&mut self, on_event: F) -> Result<(), DeviceError>
     where
         F: FnMut(Vec<DpsEvent>);
+    /// Stop listening for events.
     fn stop(&mut self);
 }
 
@@ -79,16 +102,19 @@ pub struct XPlorer {
 }
 
 impl XPlorer {
+    /// Connect to an X-Plorer vacuum at the given device config.
     pub fn connect(config: &DeviceConfig) -> Result<Self, DeviceError> {
         Ok(Self {
             conn: TuyaConnection::connect(config)?,
         })
     }
 
+    /// Wrap an existing Tuya TCP connection.
     pub fn new(conn: TuyaConnection) -> Self {
         Self { conn }
     }
 
+    /// Return the device ID.
     pub fn dev_id(&self) -> &str {
         self.conn.dev_id()
     }

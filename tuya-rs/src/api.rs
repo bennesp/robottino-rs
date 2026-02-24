@@ -7,16 +7,27 @@ use crate::signing;
 /// API error types.
 #[derive(Debug, Error)]
 pub enum ApiError {
+    /// Session expired, re-login required.
     #[error("session expired — need to re-login")]
     SessionInvalid,
+    /// Wrong email or password.
     #[error("wrong email or password")]
     PasswordWrong,
+    /// API action not available for this client.
     #[error("API action not available for this client")]
     IllegalAccessApi,
+    /// HTTP network error.
     #[error("network error: {0}")]
     NetworkError(String),
+    /// Server returned an error with a Tuya error code.
     #[error("server error {code}: {message}")]
-    ServerError { code: String, message: String },
+    ServerError {
+        /// Tuya error code.
+        code: String,
+        /// Error message from server.
+        message: String,
+    },
+    /// Failed to parse API response.
     #[error("response parsing failed: {0}")]
     ParseError(String),
 }
@@ -24,10 +35,15 @@ pub enum ApiError {
 /// OEM app credentials extracted from APK + Ghidra.
 #[derive(Debug, Clone)]
 pub struct OemCredentials {
+    /// Tuya app client ID.
     pub client_id: String,
+    /// App secret key.
     pub app_secret: String,
+    /// BMP signing key.
     pub bmp_key: String,
+    /// APK certificate SHA-256 hash.
     pub cert_hash: String,
+    /// Android package name.
     pub package_name: String,
     /// App installation device fingerprint, sent as `deviceId` in API requests.
     pub app_device_id: String,
@@ -48,37 +64,54 @@ impl OemCredentials {
 /// Active API session.
 #[derive(Debug, Clone)]
 pub struct Session {
+    /// Session ID.
     pub sid: String,
+    /// User ID.
     pub uid: String,
+    /// Account email.
     pub email: String,
+    /// API endpoint domain.
     pub domain: String,
 }
 
 /// A discovered Tuya device.
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
+    /// Tuya device ID.
     pub dev_id: String,
+    /// AES local encryption key.
     pub local_key: String,
+    /// Device display name.
     pub name: String,
+    /// Tuya product ID.
     pub product_id: String,
 }
 
 /// A home/group containing devices.
 #[derive(Debug, Clone)]
 pub struct Home {
+    /// Group/home ID.
     pub gid: u64,
+    /// Home display name.
     pub name: String,
 }
 
 /// Cloud storage credentials for map download (AWS STS temporary).
 #[derive(Debug, Clone)]
 pub struct StorageCredentials {
+    /// AWS access key ID.
     pub ak: String,
+    /// AWS secret access key.
     pub sk: String,
+    /// AWS session token.
     pub token: String,
+    /// S3 bucket name.
     pub bucket: String,
+    /// S3 region.
     pub region: String,
+    /// Credentials expiration timestamp.
     pub expiration: String,
+    /// S3 object key prefix for map files.
     pub path_prefix: String,
 }
 
@@ -224,11 +257,17 @@ fn url_encode(s: &str) -> String {
 #[allow(async_fn_in_trait)]
 /// Tuya OEM Mobile API client trait.
 pub trait TuyaApi {
+    /// Authenticate with email and password, returning an active session.
     async fn login(&mut self, email: &str, password: &str) -> Result<Session, ApiError>;
+    /// Return the current session, if logged in.
     fn session(&self) -> Option<&Session>;
+    /// List all homes/groups for the logged-in user.
     async fn list_homes(&self) -> Result<Vec<Home>, ApiError>;
+    /// List all devices in the given home/group.
     async fn list_devices(&self, gid: u64) -> Result<Vec<DeviceInfo>, ApiError>;
+    /// Get temporary AWS credentials for downloading map files.
     async fn storage_config(&self, dev_id: &str) -> Result<StorageCredentials, ApiError>;
+    /// Execute a raw Tuya API call with the given action and parameters.
     async fn raw_call(
         &self,
         action: &str,
@@ -238,16 +277,22 @@ pub trait TuyaApi {
     ) -> Result<String, ApiError>;
 }
 
+/// Concrete Tuya OEM API client using [`reqwest`].
 #[cfg(feature = "cloud")]
 pub struct TuyaOemApi {
+    /// OEM app credentials.
     pub credentials: OemCredentials,
+    /// Active session after login.
     pub session: Option<Session>,
+    /// HTTP client.
     pub client: reqwest::Client,
+    /// API endpoint URL.
     pub endpoint: String,
 }
 
 #[cfg(feature = "cloud")]
 impl TuyaOemApi {
+    /// Create a new API client with the given OEM credentials.
     pub fn new(credentials: OemCredentials) -> Self {
         Self {
             credentials,

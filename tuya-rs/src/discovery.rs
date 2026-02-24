@@ -27,10 +27,13 @@ const UDP_KEY: &[u8; 16] = b"yGAdlopoPVldABfn";
 /// Tuya packet magic prefix.
 const MAGIC_PREFIX: [u8; 4] = [0x00, 0x00, 0x55, 0xAA];
 
+/// Errors that can occur during device discovery.
 #[derive(Debug, Error)]
 pub enum DiscoveryError {
+    /// UDP socket bind or receive failure.
     #[error("socket error: {0}")]
     Socket(#[from] std::io::Error),
+    /// No devices responded within the given timeout.
     #[error("no devices found within timeout")]
     Timeout,
 }
