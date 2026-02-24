@@ -62,32 +62,39 @@ jobs:
         run: cargo llvm-cov report --summary-only --output-path coverage.json --json
       - name: 📝 Coverage summary
         run: |
-          TOTAL=$(jq -r '.data[0].totals.lines.percent' coverage.json)
-          COVERED=$(jq -r '.data[0].totals.lines.covered' coverage.json)
-          COUNT=$(jq -r '.data[0].totals.lines.count' coverage.json)
-          echo "## 📊 Code Coverage" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Lines covered** | ${COVERED} / ${COUNT} |" >> $GITHUB_STEP_SUMMARY
-          printf "| **Coverage** | %.1f%% |\n" "$TOTAL" >> $GITHUB_STEP_SUMMARY
+          jq -r '
+            .data[0].totals |
+            "## 📊 Code Coverage\n",
+            "| Metric | Covered | Total | % |",
+            "|--------|---------|-------|---|",
+            "| Lines | \(.lines.covered) | \(.lines.count) | \(.lines.percent | . * 10 | round / 10)% |",
+            "| Functions | \(.functions.covered) | \(.functions.count) | \(.functions.percent | . * 10 | round / 10)% |",
+            "| Regions | \(.regions.covered) | \(.regions.count) | \(.regions.percent | . * 10 | round / 10)% |"
+          ' coverage.json >> $GITHUB_STEP_SUMMARY
       - name: 💬 PR comment
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
-            const totals = data.data[0].totals.lines;
-            const pct = totals.percent.toFixed(1);
-            const body = `## 📊 Coverage: ${pct}% (${totals.covered}/${totals.count} lines)`;
+            const t = JSON.parse(fs.readFileSync('coverage.json', 'utf8')).data[0].totals;
+            const fmt = (m) => `| ${m.covered} | ${m.count} | ${m.percent.toFixed(1)}% |`;
+            const body = [
+              '## 📊 Code Coverage',
+              '',
+              '| Metric | Covered | Total | % |',
+              '|--------|---------|-------|---|',
+              `| **Lines** ${fmt(t.lines)}`,
+              `| Functions ${fmt(t.functions)}`,
+              `| Regions ${fmt(t.regions)}`,
+            ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const existing = comments.find(c => c.body.startsWith('## 📊 Coverage:'));
+            const existing = comments.find(c => c.body.startsWith('## 📊 Code Coverage'));
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
