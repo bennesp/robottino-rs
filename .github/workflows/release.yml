@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "tuya-rs-v*"
+      - "xplorer-rs-v*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    outputs:
+      crate: ${{ steps.tag.outputs.crate }}
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - name: Parse tag
+        id: tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          CRATE="${TAG%-v*}"
+          VERSION="${TAG#*-v}"
+          echo "crate=$CRATE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if echo "$VERSION" | grep -qE '(alpha|beta|rc)'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (all features)
+        run: cargo clippy --all-features -- -D warnings
+
+      - name: Test (all features)
+        run: cargo test --all-features
+
+  release:
+    needs: [parse, check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "${GITHUB_REF#refs/tags/}" \
+            --title "${{ needs.parse.outputs.crate }} ${{ needs.parse.outputs.version }}" \
+            --generate-notes \
+            ${{ needs.parse.outputs.prerelease == 'true' && '--prerelease' || '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: [parse, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          CARGO_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="${{ needs.parse.outputs.crate }}") | .version')
+          if [ "${{ needs.parse.outputs.version }}" != "$CARGO_VER" ]; then
+            echo "::error::Tag version ${{ needs.parse.outputs.version }} does not match ${{ needs.parse.outputs.crate }}/Cargo.toml version $CARGO_VER"
+            exit 1
+          fi
+
+      - name: Publish ${{ needs.parse.outputs.crate }}
+        run: cargo publish -p ${{ needs.parse.outputs.crate }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
