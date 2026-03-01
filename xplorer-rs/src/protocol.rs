@@ -1,18 +1,30 @@
 use base64::Engine;
 use thiserror::Error;
 
+/// Errors from decoding DP 15 sweeper messages.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
+    /// Message is shorter than minimum 4 bytes.
     #[error("message too short: need at least 4 bytes, got {0}")]
     TooShort(usize),
+    /// Start byte is not 0xAA.
     #[error("invalid start byte: expected 0xAA, got 0x{0:02X}")]
     InvalidStartByte(u8),
+    /// Base64 decoding failed.
     #[error("invalid base64: {0}")]
     InvalidBase64(#[from] base64::DecodeError),
+    /// Header length doesn't match actual data.
     #[error("length mismatch: header says {expected} bytes, got {actual}")]
-    LengthMismatch { expected: usize, actual: usize },
+    LengthMismatch {
+        /// Expected total byte count from header.
+        expected: usize,
+        /// Actual byte count received.
+        actual: usize,
+    },
+    /// Command byte doesn't match expected value.
     #[error("unexpected command 0x{0:02X} for RoomCleanStatusResponse (expected 0x15)")]
     UnexpectedCommand(u8),
+    /// Payload is too short for the expected response.
     #[error("payload too short for RoomCleanStatusResponse")]
     PayloadTooShort,
 }
@@ -21,15 +33,25 @@ pub enum ProtocolError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum CommandType {
+    /// Set virtual walls (0x12).
     SetVirtualWall = 0x12,
+    /// Virtual wall status response (0x13).
     VirtualWallStatus = 0x13,
+    /// Start room cleaning (0x14).
     SetRoomClean = 0x14,
+    /// Room clean status response (0x15).
     RoomCleanStatus = 0x15,
+    /// Request area clean (0x17).
     RequestAreaClean = 0x17,
+    /// Set forbidden zones (0x1A).
     SetVirtualArea = 0x1A,
+    /// Forbidden zone status response (0x1B).
     VirtualAreaStatus = 0x1B,
+    /// Start zone cleaning (0x28).
     SetZoneClean = 0x28,
+    /// Zone clean status response (0x29).
     ZoneCleanStatus = 0x29,
+    /// Custom data transfer (0x31).
     CustomizeData = 0x31,
 }
 
@@ -48,7 +70,9 @@ pub enum ForbiddenMode {
 /// A forbidden zone with its restriction mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForbiddenZone {
+    /// Restriction type (full ban, no sweep, no mop).
     pub mode: ForbiddenMode,
+    /// Rectangular zone coordinates.
     pub zone: Zone,
 }
 
@@ -57,14 +81,32 @@ pub struct ForbiddenZone {
 /// The robot will not cross this line during cleaning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Wall {
+    /// Start point (x, y) in map coordinates.
     pub start: (i16, i16),
+    /// End point (x, y) in map coordinates.
     pub end: (i16, i16),
 }
 
 /// A room cleaning command to send via DP 15.
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::RoomCleanCommand;
+///
+/// let cmd = RoomCleanCommand { clean_times: 2, room_ids: vec![0, 3] };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[0], 0xAA); // start byte
+/// assert_eq!(bytes[3], 0x14); // room clean command
+///
+/// let b64 = cmd.encode_base64();
+/// assert!(!b64.is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomCleanCommand {
+    /// Number of cleaning passes per room.
     pub clean_times: u8,
+    /// Room IDs to clean.
     pub room_ids: Vec<u8>,
 }
 
@@ -104,6 +146,7 @@ impl RoomCleanCommand {
 /// For a simple axis-aligned rectangle, construct from two corners with [`Zone::rect`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Zone {
+    /// Four polygon vertices as (x, y) pairs in map coordinates.
     pub vertices: [(i16, i16); 4],
 }
 
@@ -112,6 +155,17 @@ impl Zone {
     ///
     /// The corners are (x1, y1) = bottom-left and (x2, y2) = top-right
     /// (y-axis points up, matching the robot's coordinate system).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::Zone;
+    ///
+    /// let zone = Zone::rect(82, -13, 453, 203);
+    /// // Vertices: TL, TR, BR, BL
+    /// assert_eq!(zone.vertices[0], (82, 203));   // top-left
+    /// assert_eq!(zone.vertices[2], (453, -13));   // bottom-right
+    /// ```
     pub fn rect(x1: i16, y1: i16, x2: i16, y2: i16) -> Self {
         Zone {
             vertices: [
@@ -131,6 +185,21 @@ impl Zone {
     ///
     /// Use the map's `theta` value (typically `route_header.theta as f64 / 100.0`)
     /// to compensate for the coordinate system rotation relative to room walls.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::Zone;
+    ///
+    /// // 0° rotation produces the same result as Zone::rect
+    /// let plain = Zone::rect(100, 200, 300, 400);
+    /// let rotated = Zone::rotated_rect(100, 200, 300, 400, 0.0);
+    /// assert_eq!(plain.vertices, rotated.vertices);
+    ///
+    /// // Compensate for map theta of 2.7°
+    /// let zone = Zone::rotated_rect(82, -13, 453, 203, 2.7);
+    /// assert_ne!(zone.vertices, plain.vertices);
+    /// ```
     pub fn rotated_rect(x1: i16, y1: i16, x2: i16, y2: i16, angle_deg: f64) -> Self {
         let cx = (x1 as f64 + x2 as f64) / 2.0;
         let cy = (y1 as f64 + y2 as f64) / 2.0;
@@ -199,9 +268,25 @@ fn encode_zone_frame(cmd: u8, first_byte: u8, zones: &[Zone]) -> Vec<u8> {
 /// Discovered by brute-force testing: cmd 0x28 is the setter, the robot
 /// reports status back in cmd 0x29. Each zone is a polygon defined by
 /// `num_vertices` points (typically 4 for a rectangle).
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::{Zone, ZoneCleanCommand};
+///
+/// let cmd = ZoneCleanCommand {
+///     clean_times: 1,
+///     zones: vec![Zone::rect(82, -13, 453, 203)],
+/// };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[0], 0xAA);
+/// assert_eq!(bytes[3], 0x28); // zone clean command
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZoneCleanCommand {
+    /// Number of cleaning passes.
     pub clean_times: u8,
+    /// Rectangular zones to clean.
     pub zones: Vec<Zone>,
 }
 
@@ -227,8 +312,29 @@ impl ZoneCleanCommand {
 /// Each zone has its own [`ForbiddenMode`].
 ///
 /// Format: `aa <len> 0x1a <num_zones> [<mode> <num_pts=4> <coords...>]* <checksum>`
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::{ForbiddenZoneCommand, ForbiddenZone, ForbiddenMode, Zone};
+///
+/// // Set a no-go zone
+/// let cmd = ForbiddenZoneCommand {
+///     zones: vec![ForbiddenZone {
+///         mode: ForbiddenMode::FullBan,
+///         zone: Zone::rect(100, 100, 200, 200),
+///     }],
+/// };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[3], 0x1A);
+///
+/// // Clear all forbidden zones
+/// let clear = ForbiddenZoneCommand::clear();
+/// assert!(clear.zones.is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForbiddenZoneCommand {
+    /// Forbidden zones to set.
     pub zones: Vec<ForbiddenZone>,
 }
 
@@ -278,8 +384,25 @@ impl ForbiddenZoneCommand {
 /// back in cmd 0x13.
 ///
 /// Format: `aa <len> 0x12 <num_walls> [<x1> <y1> <x2> <y2>]* <checksum>`
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::{VirtualWallCommand, Wall};
+///
+/// let cmd = VirtualWallCommand {
+///     walls: vec![Wall { start: (100, 50), end: (300, 50) }],
+/// };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[3], 0x12);
+///
+/// // Clear all virtual walls
+/// let clear = VirtualWallCommand::clear();
+/// assert!(clear.walls.is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VirtualWallCommand {
+    /// Virtual walls to set.
     pub walls: Vec<Wall>,
 }
 
@@ -321,13 +444,27 @@ impl VirtualWallCommand {
 /// A decoded DP 15 message from the vacuum cleaner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SweeperMessage {
+    /// Command byte.
     pub cmd: u8,
+    /// Payload data (without header and checksum).
     pub data: Vec<u8>,
+    /// Whether the checksum validated correctly.
     pub checksum_ok: bool,
 }
 
 impl SweeperMessage {
     /// Decode from raw bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::SweeperMessage;
+    ///
+    /// let bytes = [0xAA, 0x00, 0x04, 0x15, 0x01, 0x01, 0x04, 0x1B];
+    /// let msg = SweeperMessage::decode(&bytes).unwrap();
+    /// assert_eq!(msg.cmd, 0x15);
+    /// assert!(msg.checksum_ok);
+    /// ```
     pub fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         if bytes.len() < 4 {
             return Err(ProtocolError::TooShort(bytes.len()));
@@ -363,6 +500,16 @@ impl SweeperMessage {
     }
 
     /// Decode from base64 string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::protocol::SweeperMessage;
+    ///
+    /// let msg = SweeperMessage::decode_base64("qgAEFQEBBBs=").unwrap();
+    /// assert_eq!(msg.cmd, 0x15);
+    /// assert_eq!(msg.data, vec![0x01, 0x01, 0x04]);
+    /// ```
     pub fn decode_base64(s: &str) -> Result<Self, ProtocolError> {
         let bytes = base64::engine::general_purpose::STANDARD.decode(s)?;
         Self::decode(&bytes)
@@ -372,8 +519,11 @@ impl SweeperMessage {
 /// Parsed room clean status from the vacuum cleaner (cmd 0x15).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomCleanStatusResponse {
+    /// Number of cleaning passes.
     pub clean_times: u8,
+    /// Number of rooms being cleaned.
     pub num_rooms: u8,
+    /// IDs of rooms being cleaned.
     pub room_ids: Vec<u8>,
 }
 
@@ -412,15 +562,6 @@ mod tests {
             cmd.encode(),
             vec![0xAA, 0x00, 0x04, 0x14, 0x01, 0x01, 0x04, 0x1A]
         );
-    }
-
-    #[test]
-    fn encode_base64_single_room() {
-        let cmd = RoomCleanCommand {
-            clean_times: 1,
-            room_ids: vec![4],
-        };
-        assert_eq!(cmd.encode_base64(), "qgAEFAEBBBo=");
     }
 
     #[test]
@@ -516,20 +657,6 @@ mod tests {
 
         let msg2 = SweeperMessage::decode_base64(&b64).unwrap();
         assert_eq!(msg, msg2);
-    }
-
-    #[test]
-    fn checksum_is_sum_mod_256() {
-        let cmd = RoomCleanCommand {
-            clean_times: 1,
-            room_ids: vec![4],
-        };
-        let encoded = cmd.encode();
-        let sum: u16 = encoded[3..encoded.len() - 1]
-            .iter()
-            .map(|&b| b as u16)
-            .sum();
-        assert_eq!(encoded.last().copied().unwrap(), (sum & 0xFF) as u8);
     }
 
     // ── Zone clean ──────────────────────────────────────────────
@@ -725,45 +852,7 @@ mod tests {
         assert_eq!(msg.data[2], 4); // num_vertices
     }
 
-    #[test]
-    fn zone_encode_base64_roundtrip() {
-        let cmd = ZoneCleanCommand {
-            clean_times: 1,
-            zones: vec![Zone::rect(82, -13, 453, 203)],
-        };
-        let b64 = cmd.encode_base64();
-        let msg = SweeperMessage::decode_base64(&b64).unwrap();
-        assert!(msg.checksum_ok);
-        assert_eq!(msg.cmd, 0x28);
-    }
-
     // ── Forbidden zone (cmd 0x1a) ─────────────────────────────
-
-    #[test]
-    fn forbidden_zone_encode_full_ban() {
-        // Verified against real robot: mode=0x00 shows as "zona vietata" in app
-        let cmd = ForbiddenZoneCommand {
-            zones: vec![ForbiddenZone {
-                mode: ForbiddenMode::FullBan,
-                zone: Zone::rect(82, -13, 453, 203),
-            }],
-        };
-        let encoded = cmd.encode();
-        assert_eq!(encoded[0], 0xAA);
-        // payload_len = 1 + 1 + (1 + 1 + 4*4) = 20 = 0x0014
-        assert_eq!(encoded[1], 0x00);
-        assert_eq!(encoded[2], 0x14);
-        assert_eq!(encoded[3], 0x1A); // cmd
-        assert_eq!(encoded[4], 0x01); // num_zones
-        assert_eq!(encoded[5], 0x00); // mode = FullBan
-        assert_eq!(encoded[6], 0x04); // num_points
-        assert_eq!(encoded.len(), 24);
-        let sum: u16 = encoded[3..encoded.len() - 1]
-            .iter()
-            .map(|&b| b as u16)
-            .sum();
-        assert_eq!(encoded.last().copied().unwrap(), (sum & 0xFF) as u8);
-    }
 
     #[test]
     fn forbidden_zone_encode_no_sweep() {

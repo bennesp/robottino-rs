@@ -7,16 +7,27 @@ use crate::signing;
 /// API error types.
 #[derive(Debug, Error)]
 pub enum ApiError {
+    /// Session expired, re-login required.
     #[error("session expired — need to re-login")]
     SessionInvalid,
+    /// Wrong email or password.
     #[error("wrong email or password")]
     PasswordWrong,
+    /// API action not available for this client.
     #[error("API action not available for this client")]
     IllegalAccessApi,
+    /// HTTP network error.
     #[error("network error: {0}")]
     NetworkError(String),
+    /// Server returned an error with a Tuya error code.
     #[error("server error {code}: {message}")]
-    ServerError { code: String, message: String },
+    ServerError {
+        /// Tuya error code.
+        code: String,
+        /// Error message from server.
+        message: String,
+    },
+    /// Failed to parse API response.
     #[error("response parsing failed: {0}")]
     ParseError(String),
 }
@@ -24,10 +35,15 @@ pub enum ApiError {
 /// OEM app credentials extracted from APK + Ghidra.
 #[derive(Debug, Clone)]
 pub struct OemCredentials {
+    /// Tuya app client ID.
     pub client_id: String,
+    /// App secret key.
     pub app_secret: String,
+    /// BMP signing key.
     pub bmp_key: String,
+    /// APK certificate SHA-256 hash.
     pub cert_hash: String,
+    /// Android package name.
     pub package_name: String,
     /// App installation device fingerprint, sent as `deviceId` in API requests.
     pub app_device_id: String,
@@ -48,37 +64,54 @@ impl OemCredentials {
 /// Active API session.
 #[derive(Debug, Clone)]
 pub struct Session {
+    /// Session ID.
     pub sid: String,
+    /// User ID.
     pub uid: String,
+    /// Account email.
     pub email: String,
+    /// API endpoint domain.
     pub domain: String,
 }
 
 /// A discovered Tuya device.
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
+    /// Tuya device ID.
     pub dev_id: String,
+    /// AES local encryption key.
     pub local_key: String,
+    /// Device display name.
     pub name: String,
+    /// Tuya product ID.
     pub product_id: String,
 }
 
 /// A home/group containing devices.
 #[derive(Debug, Clone)]
 pub struct Home {
+    /// Group/home ID.
     pub gid: u64,
+    /// Home display name.
     pub name: String,
 }
 
 /// Cloud storage credentials for map download (AWS STS temporary).
 #[derive(Debug, Clone)]
 pub struct StorageCredentials {
+    /// AWS access key ID.
     pub ak: String,
+    /// AWS secret access key.
     pub sk: String,
+    /// AWS session token.
     pub token: String,
+    /// S3 bucket name.
     pub bucket: String,
+    /// S3 region.
     pub region: String,
+    /// Credentials expiration timestamp.
     pub expiration: String,
+    /// S3 object key prefix for map files.
     pub path_prefix: String,
 }
 
@@ -144,6 +177,25 @@ pub fn derive_aws4_signing_key(
 }
 
 /// Generate an AWS4-HMAC-SHA256 pre-signed URL.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::api::generate_presigned_url;
+///
+/// let url = generate_presigned_url(
+///     "/maps/lay.bin",
+///     "AKIAIOSFODNN7EXAMPLE",
+///     "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+///     "session-token",
+///     "my-bucket.s3.amazonaws.com",
+///     "eu-west-1",
+///     "20260101T120000Z",
+///     3600,
+/// );
+/// assert!(url.starts_with("https://"));
+/// assert!(url.contains("X-Amz-Signature="));
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn generate_presigned_url(
     path: &str,
@@ -221,45 +273,180 @@ fn url_encode(s: &str) -> String {
     result
 }
 
+// ── HTTP client abstraction ────────────────────────────────
+
+/// HTTP transport abstraction for Tuya API calls.
+///
+/// Implement this trait to provide a custom HTTP backend (e.g. for testing).
 #[allow(async_fn_in_trait)]
-/// Tuya OEM Mobile API client trait.
-pub trait TuyaApi {
-    async fn login(&mut self, email: &str, password: &str) -> Result<Session, ApiError>;
-    fn session(&self) -> Option<&Session>;
-    async fn list_homes(&self) -> Result<Vec<Home>, ApiError>;
-    async fn list_devices(&self, gid: u64) -> Result<Vec<DeviceInfo>, ApiError>;
-    async fn storage_config(&self, dev_id: &str) -> Result<StorageCredentials, ApiError>;
-    async fn raw_call(
+pub trait HttpClient {
+    /// Send a POST request with form parameters, returning the response body.
+    async fn post_form(
         &self,
-        action: &str,
-        version: &str,
-        post_data: &str,
-        extra_params: &[(&str, &str)],
+        endpoint: &str,
+        params: &[(String, String)],
     ) -> Result<String, ApiError>;
 }
 
+/// Default HTTP client using [`reqwest`].
 #[cfg(feature = "cloud")]
-pub struct TuyaOemApi {
+pub struct ReqwestClient {
+    client: reqwest::Client,
+}
+
+#[cfg(feature = "cloud")]
+impl HttpClient for ReqwestClient {
+    async fn post_form(
+        &self,
+        endpoint: &str,
+        params: &[(String, String)],
+    ) -> Result<String, ApiError> {
+        let url = reqwest::Url::parse_with_params(endpoint, params)
+            .map_err(|e| ApiError::NetworkError(e.to_string()))?;
+        let resp = self
+            .client
+            .post(url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .send()
+            .await
+            .map_err(|e| ApiError::NetworkError(e.to_string()))?;
+        resp.text()
+            .await
+            .map_err(|e| ApiError::NetworkError(e.to_string()))
+    }
+}
+
+// ── TuyaApi trait ──────────────────────────────────────────
+
+#[allow(async_fn_in_trait)]
+/// Tuya OEM Mobile API client trait.
+pub trait TuyaApi {
+    /// Authenticate with email and password, returning an active session.
+    async fn login(&mut self, email: &str, password: &str) -> Result<Session, ApiError>;
+    /// Return the current session, if logged in.
+    fn session(&self) -> Option<&Session>;
+    /// List all homes/groups for the logged-in user.
+    async fn list_homes(&self) -> Result<Vec<Home>, ApiError>;
+    /// List all devices in the given home/group.
+    async fn list_devices(&self, gid: u64) -> Result<Vec<DeviceInfo>, ApiError>;
+    /// Get temporary AWS credentials for downloading map files.
+    async fn storage_config(&self, dev_id: &str) -> Result<StorageCredentials, ApiError>;
+}
+
+// ── Concrete API client ────────────────────────────────────
+
+/// Tuya OEM API client, generic over the HTTP transport.
+///
+/// Use [`TuyaOemApi::new`] for the default [`ReqwestClient`] backend,
+/// or [`TuyaOemApi::with_http`] to inject a custom [`HttpClient`] (e.g. for testing).
+#[cfg(feature = "cloud")]
+pub struct TuyaOemApi<H: HttpClient = ReqwestClient> {
+    /// OEM app credentials.
     pub credentials: OemCredentials,
+    /// Active session after login.
     pub session: Option<Session>,
-    pub client: reqwest::Client,
+    /// HTTP transport.
+    pub http: H,
+    /// API endpoint URL.
     pub endpoint: String,
 }
 
 #[cfg(feature = "cloud")]
 impl TuyaOemApi {
+    /// Create a new API client with the given OEM credentials.
     pub fn new(credentials: OemCredentials) -> Self {
         Self {
             credentials,
             session: None,
-            client: reqwest::Client::new(),
+            http: ReqwestClient {
+                client: reqwest::Client::new(),
+            },
             endpoint: "https://a1.tuyaeu.com/api.json".to_string(),
         }
     }
 }
 
 #[cfg(feature = "cloud")]
-impl TuyaApi for TuyaOemApi {
+impl<H: HttpClient> TuyaOemApi<H> {
+    /// Create a new API client with a custom HTTP transport.
+    pub fn with_http(credentials: OemCredentials, http: H) -> Self {
+        Self {
+            credentials,
+            session: None,
+            http,
+            endpoint: "https://a1.tuyaeu.com/api.json".to_string(),
+        }
+    }
+
+    /// Execute a raw Tuya API call, returning the response body.
+    ///
+    /// Builds signed request parameters, sends via the HTTP transport,
+    /// and checks for Tuya error codes in the response.
+    pub async fn raw_call(
+        &self,
+        action: &str,
+        version: &str,
+        post_data: &str,
+        extra_params: &[(&str, &str)],
+    ) -> Result<String, ApiError> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
+        let request_id = uuid::Uuid::new_v4().to_string();
+
+        let mut params = build_request_params(
+            &self.credentials,
+            action,
+            version,
+            post_data,
+            self.session.as_ref(),
+            &timestamp,
+            &request_id,
+        );
+
+        for (k, v) in extra_params {
+            params.push((k.to_string(), v.to_string()));
+        }
+
+        let body = self.http.post_form(&self.endpoint, &params).await?;
+
+        // Check for API errors
+        check_api_error(&body)?;
+
+        Ok(body)
+    }
+}
+
+/// Check a Tuya API response body for error codes.
+///
+/// Returns `Ok(())` if no error is found, or the appropriate [`ApiError`].
+#[cfg(feature = "cloud")]
+fn check_api_error(body: &str) -> Result<(), ApiError> {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body)
+        && let Some(err_code) = json.get("errorCode").and_then(|v| v.as_str())
+    {
+        let msg = json
+            .get("errorMsg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        return match err_code {
+            "USER_SESSION_INVALID" => Err(ApiError::SessionInvalid),
+            "USER_PASSWD_WRONG" => Err(ApiError::PasswordWrong),
+            "ILLEGAL_ACCESS_API" => Err(ApiError::IllegalAccessApi),
+            _ => Err(ApiError::ServerError {
+                code: err_code.to_string(),
+                message: msg,
+            }),
+        };
+    }
+    Ok(())
+}
+
+#[cfg(feature = "cloud")]
+impl<H: HttpClient> TuyaApi for TuyaOemApi<H> {
     async fn login(&mut self, email: &str, password: &str) -> Result<Session, ApiError> {
         use crate::crypto;
         use num_bigint::BigUint;
@@ -429,73 +616,6 @@ impl TuyaApi for TuyaOemApi {
                 .to_string(),
         })
     }
-
-    async fn raw_call(
-        &self,
-        action: &str,
-        version: &str,
-        post_data: &str,
-        extra_params: &[(&str, &str)],
-    ) -> Result<String, ApiError> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .to_string();
-        let request_id = uuid::Uuid::new_v4().to_string();
-
-        let mut params = build_request_params(
-            &self.credentials,
-            action,
-            version,
-            post_data,
-            self.session.as_ref(),
-            &timestamp,
-            &request_id,
-        );
-
-        for (k, v) in extra_params {
-            params.push((k.to_string(), v.to_string()));
-        }
-
-        let url = reqwest::Url::parse_with_params(&self.endpoint, &params)
-            .map_err(|e| ApiError::NetworkError(e.to_string()))?;
-
-        let resp = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .send()
-            .await
-            .map_err(|e| ApiError::NetworkError(e.to_string()))?;
-
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| ApiError::NetworkError(e.to_string()))?;
-
-        // Check for API errors
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body)
-            && let Some(err_code) = json.get("errorCode").and_then(|v| v.as_str())
-        {
-            let msg = json
-                .get("errorMsg")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            return match err_code {
-                "USER_SESSION_INVALID" => Err(ApiError::SessionInvalid),
-                "USER_PASSWD_WRONG" => Err(ApiError::PasswordWrong),
-                "ILLEGAL_ACCESS_API" => Err(ApiError::IllegalAccessApi),
-                _ => Err(ApiError::ServerError {
-                    code: err_code.to_string(),
-                    message: msg,
-                }),
-            };
-        }
-
-        Ok(body)
-    }
 }
 
 #[cfg(test)]
@@ -618,5 +738,390 @@ mod tests {
         assert_eq!(url_encode("hello world"), "hello%20world");
         assert_eq!(url_encode("a/b"), "a%2Fb");
         assert_eq!(url_encode("safe-chars_here.txt~"), "safe-chars_here.txt~");
+    }
+
+    #[test]
+    fn url_encode_all_unreserved() {
+        // All unreserved chars should pass through
+        let unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~";
+        assert_eq!(url_encode(unreserved), unreserved);
+    }
+
+    #[test]
+    fn url_encode_symbols() {
+        assert_eq!(url_encode("+"), "%2B");
+        assert_eq!(url_encode("="), "%3D");
+        assert_eq!(url_encode("&"), "%26");
+        assert_eq!(url_encode("@"), "%40");
+        assert_eq!(url_encode(":"), "%3A");
+    }
+
+    #[test]
+    fn sha256_hex_known_value() {
+        // SHA-256 of empty string
+        let hash = sha256_hex(b"");
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[cfg(feature = "cloud")]
+    #[test]
+    fn tuya_oem_api_new_defaults() {
+        let creds = test_creds();
+        let api = TuyaOemApi::new(creds.clone());
+        assert!(api.session.is_none());
+        assert_eq!(api.endpoint, "https://a1.tuyaeu.com/api.json");
+        assert_eq!(api.credentials.client_id, creds.client_id);
+    }
+
+    // ── MockHttpClient + async tests (cloud feature) ──────
+
+    #[cfg(feature = "cloud")]
+    mod cloud_tests {
+        use super::*;
+        use std::cell::RefCell;
+        use std::collections::VecDeque;
+
+        struct MockHttpClient {
+            responses: RefCell<VecDeque<String>>,
+        }
+
+        impl MockHttpClient {
+            fn new(responses: Vec<&str>) -> Self {
+                Self {
+                    responses: RefCell::new(responses.into_iter().map(String::from).collect()),
+                }
+            }
+        }
+
+        impl HttpClient for MockHttpClient {
+            async fn post_form(
+                &self,
+                _endpoint: &str,
+                _params: &[(String, String)],
+            ) -> Result<String, ApiError> {
+                self.responses
+                    .borrow_mut()
+                    .pop_front()
+                    .ok_or_else(|| ApiError::NetworkError("no more mock responses".into()))
+            }
+        }
+
+        fn mock_api(responses: Vec<&str>) -> TuyaOemApi<MockHttpClient> {
+            TuyaOemApi::with_http(test_creds(), MockHttpClient::new(responses))
+        }
+
+        // ── check_api_error ───────────────────────────────
+
+        #[test]
+        fn check_api_error_no_error() {
+            assert!(check_api_error(r#"{"result":"ok"}"#).is_ok());
+        }
+
+        #[test]
+        fn check_api_error_session_invalid() {
+            let body = r#"{"errorCode":"USER_SESSION_INVALID","errorMsg":"session expired"}"#;
+            assert!(matches!(
+                check_api_error(body),
+                Err(ApiError::SessionInvalid)
+            ));
+        }
+
+        #[test]
+        fn check_api_error_password_wrong() {
+            let body = r#"{"errorCode":"USER_PASSWD_WRONG","errorMsg":"bad password"}"#;
+            assert!(matches!(
+                check_api_error(body),
+                Err(ApiError::PasswordWrong)
+            ));
+        }
+
+        #[test]
+        fn check_api_error_illegal_access() {
+            let body = r#"{"errorCode":"ILLEGAL_ACCESS_API","errorMsg":"denied"}"#;
+            assert!(matches!(
+                check_api_error(body),
+                Err(ApiError::IllegalAccessApi)
+            ));
+        }
+
+        #[test]
+        fn check_api_error_unknown_code() {
+            let body = r#"{"errorCode":"SOMETHING_ELSE","errorMsg":"oops"}"#;
+            match check_api_error(body) {
+                Err(ApiError::ServerError { code, message }) => {
+                    assert_eq!(code, "SOMETHING_ELSE");
+                    assert_eq!(message, "oops");
+                }
+                other => panic!("expected ServerError, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn check_api_error_no_error_msg() {
+            let body = r#"{"errorCode":"CUSTOM_ERR"}"#;
+            match check_api_error(body) {
+                Err(ApiError::ServerError { message, .. }) => assert_eq!(message, ""),
+                other => panic!("expected ServerError, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn check_api_error_non_json() {
+            // Non-JSON body should pass through (no error detected)
+            assert!(check_api_error("not json at all").is_ok());
+        }
+
+        // ── raw_call ──────────────────────────────────────
+
+        #[tokio::test]
+        async fn raw_call_success() {
+            let api = mock_api(vec![r#"{"result":"ok"}"#]);
+            let body = api.raw_call("test.action", "1.0", "{}", &[]).await.unwrap();
+            assert_eq!(body, r#"{"result":"ok"}"#);
+        }
+
+        #[tokio::test]
+        async fn raw_call_with_extra_params() {
+            let api = mock_api(vec![r#"{"result":"ok"}"#]);
+            let body = api
+                .raw_call("test", "1.0", "{}", &[("gid", "123")])
+                .await
+                .unwrap();
+            assert_eq!(body, r#"{"result":"ok"}"#);
+        }
+
+        #[tokio::test]
+        async fn raw_call_error_response() {
+            let api = mock_api(vec![
+                r#"{"errorCode":"USER_SESSION_INVALID","errorMsg":"expired"}"#,
+            ]);
+            let err = api.raw_call("test", "1.0", "{}", &[]).await.unwrap_err();
+            assert!(matches!(err, ApiError::SessionInvalid));
+        }
+
+        // ── list_homes ────────────────────────────────────
+
+        #[tokio::test]
+        async fn list_homes_success() {
+            let api = mock_api(vec![
+                r#"{"result":[{"groupId":1,"name":"Home"},{"gid":2,"name":"Office"}]}"#,
+            ]);
+            let homes = api.list_homes().await.unwrap();
+            assert_eq!(homes.len(), 2);
+            assert_eq!(homes[0].gid, 1);
+            assert_eq!(homes[0].name, "Home");
+            assert_eq!(homes[1].gid, 2);
+            assert_eq!(homes[1].name, "Office");
+        }
+
+        #[tokio::test]
+        async fn list_homes_empty() {
+            let api = mock_api(vec![r#"{"result":[]}"#]);
+            let homes = api.list_homes().await.unwrap();
+            assert!(homes.is_empty());
+        }
+
+        #[tokio::test]
+        async fn list_homes_no_result() {
+            let api = mock_api(vec![r#"{"status":"ok"}"#]);
+            let err = api.list_homes().await.unwrap_err();
+            assert!(matches!(err, ApiError::ParseError(_)));
+        }
+
+        #[tokio::test]
+        async fn list_homes_skips_invalid_entries() {
+            // Entry without groupId/gid is skipped
+            let api = mock_api(vec![
+                r#"{"result":[{"name":"NoId"},{"groupId":5,"name":"Valid"}]}"#,
+            ]);
+            let homes = api.list_homes().await.unwrap();
+            assert_eq!(homes.len(), 1);
+            assert_eq!(homes[0].gid, 5);
+        }
+
+        // ── list_devices ──────────────────────────────────
+
+        #[tokio::test]
+        async fn list_devices_success() {
+            let api = mock_api(vec![
+                r#"{"result":[{"devId":"d1","localKey":"k1","name":"Robot","productId":"p1"}]}"#,
+            ]);
+            let devs = api.list_devices(1).await.unwrap();
+            assert_eq!(devs.len(), 1);
+            assert_eq!(devs[0].dev_id, "d1");
+            assert_eq!(devs[0].local_key, "k1");
+            assert_eq!(devs[0].name, "Robot");
+            assert_eq!(devs[0].product_id, "p1");
+        }
+
+        #[tokio::test]
+        async fn list_devices_defaults_for_missing_fields() {
+            let api = mock_api(vec![r#"{"result":[{"devId":"d2"}]}"#]);
+            let devs = api.list_devices(1).await.unwrap();
+            assert_eq!(devs[0].local_key, "");
+            assert_eq!(devs[0].name, "");
+            assert_eq!(devs[0].product_id, "");
+        }
+
+        #[tokio::test]
+        async fn list_devices_skips_without_dev_id() {
+            let api = mock_api(vec![r#"{"result":[{"name":"NoId"},{"devId":"d3"}]}"#]);
+            let devs = api.list_devices(1).await.unwrap();
+            assert_eq!(devs.len(), 1);
+            assert_eq!(devs[0].dev_id, "d3");
+        }
+
+        #[tokio::test]
+        async fn list_devices_no_result() {
+            let api = mock_api(vec![r#"{}"#]);
+            assert!(matches!(
+                api.list_devices(1).await.unwrap_err(),
+                ApiError::ParseError(_)
+            ));
+        }
+
+        // ── storage_config ────────────────────────────────
+
+        #[tokio::test]
+        async fn storage_config_success() {
+            let api = mock_api(vec![
+                r#"{"result":{
+                "ak":"AK1","sk":"SK1","token":"TOK1",
+                "bucket":"my-bucket","region":"eu-west-1",
+                "expiration":"2026-01-01",
+                "pathConfig":{"common":"/maps/dev1/"}
+            }}"#,
+            ]);
+            let creds = api.storage_config("dev1").await.unwrap();
+            assert_eq!(creds.ak, "AK1");
+            assert_eq!(creds.sk, "SK1");
+            assert_eq!(creds.token, "TOK1");
+            assert_eq!(creds.bucket, "my-bucket");
+            assert_eq!(creds.region, "eu-west-1");
+            assert_eq!(creds.expiration, "2026-01-01");
+            assert_eq!(creds.path_prefix, "/maps/dev1/");
+        }
+
+        #[tokio::test]
+        async fn storage_config_defaults() {
+            let api = mock_api(vec![r#"{"result":{}}"#]);
+            let creds = api.storage_config("dev1").await.unwrap();
+            assert_eq!(creds.ak, "");
+            assert_eq!(creds.bucket, "ty-eu-storage-permanent");
+            assert_eq!(creds.region, "tuyaeu.com");
+            assert_eq!(creds.path_prefix, "");
+        }
+
+        #[tokio::test]
+        async fn storage_config_no_result() {
+            let api = mock_api(vec![r#"{}"#]);
+            assert!(matches!(
+                api.storage_config("dev1").await.unwrap_err(),
+                ApiError::ParseError(_)
+            ));
+        }
+
+        // ── login ─────────────────────────────────────────
+
+        #[tokio::test]
+        async fn login_success() {
+            let mut api = mock_api(vec![
+                // Step 1: token create response
+                r#"{"result":{"token":"tok123","publicKey":"12345","exponent":"65537"}}"#,
+                // Step 2: login response
+                r#"{"result":{"sid":"session1","uid":"user1","domain":{"mobileApiUrl":"https://a2.tuyaeu.com"}}}"#,
+            ]);
+            let session = api.login("test@test.com", "password123").await.unwrap();
+            assert_eq!(session.sid, "session1");
+            assert_eq!(session.uid, "user1");
+            assert_eq!(session.email, "test@test.com");
+            assert_eq!(session.domain, "https://a2.tuyaeu.com");
+            // Session is stored
+            assert!(api.session().is_some());
+            assert_eq!(api.session().unwrap().sid, "session1");
+        }
+
+        #[tokio::test]
+        async fn login_default_domain() {
+            let mut api = mock_api(vec![
+                r#"{"result":{"token":"tok","publicKey":"12345","exponent":"65537"}}"#,
+                r#"{"result":{"sid":"s1"}}"#,
+            ]);
+            let session = api.login("a@b.com", "pw").await.unwrap();
+            assert_eq!(session.domain, "https://a1.tuyaeu.com");
+        }
+
+        #[tokio::test]
+        async fn login_token_error_propagates() {
+            let mut api = mock_api(vec![
+                r#"{"errorCode":"ILLEGAL_ACCESS_API","errorMsg":"denied"}"#,
+            ]);
+            assert!(matches!(
+                api.login("a@b.com", "pw").await.unwrap_err(),
+                ApiError::IllegalAccessApi
+            ));
+        }
+
+        #[tokio::test]
+        async fn login_no_token_in_response() {
+            let mut api = mock_api(vec![r#"{"result":{}}"#]);
+            assert!(matches!(
+                api.login("a@b.com", "pw").await.unwrap_err(),
+                ApiError::ParseError(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn login_no_result_in_login_response() {
+            let mut api = mock_api(vec![
+                r#"{"result":{"token":"tok","publicKey":"12345","exponent":"65537"}}"#,
+                r#"{"status":"error"}"#, // no "result" key
+            ]);
+            assert!(matches!(
+                api.login("a@b.com", "pw").await.unwrap_err(),
+                ApiError::PasswordWrong
+            ));
+        }
+
+        #[tokio::test]
+        async fn login_invalid_public_key() {
+            let mut api = mock_api(vec![
+                r#"{"result":{"token":"tok","publicKey":"not_a_number","exponent":"65537"}}"#,
+            ]);
+            assert!(matches!(
+                api.login("a@b.com", "pw").await.unwrap_err(),
+                ApiError::ParseError(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn login_no_sid_in_response() {
+            let mut api = mock_api(vec![
+                r#"{"result":{"token":"tok","publicKey":"12345","exponent":"65537"}}"#,
+                r#"{"result":{"uid":"u1"}}"#, // no sid
+            ]);
+            assert!(matches!(
+                api.login("a@b.com", "pw").await.unwrap_err(),
+                ApiError::ParseError(_)
+            ));
+        }
+
+        // ── session / with_http ───────────────────────────
+
+        #[test]
+        fn session_none_by_default() {
+            let api = mock_api(vec![]);
+            assert!(api.session().is_none());
+        }
+
+        #[test]
+        fn with_http_sets_defaults() {
+            let api = mock_api(vec![]);
+            assert_eq!(api.endpoint, "https://a1.tuyaeu.com/api.json");
+            assert!(api.session.is_none());
+        }
     }
 }

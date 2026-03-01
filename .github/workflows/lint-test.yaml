@@ -1,0 +1,132 @@
+name: 🔍 Lint & Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: 🔍 Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: 📦 Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Additive: also cache the instrumented build dir used by cargo-llvm-cov
+          cache-directories: target/llvm-cov-target
+      - name: 🛡️ Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+      - name: 🔧 Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: 🎨 Format
+        run: cargo fmt --all -- --check
+      - name: 📎 Clippy
+        run: cargo clippy --all-features -- -D warnings
+      - name: 🛡️ Security audit
+        run: cargo audit
+
+      - name: 🧪 Doc tests
+        run: cargo test --doc --all-features
+
+      - name: 🧪 Test (default)
+        run: cargo llvm-cov --no-report
+      - name: 🧪 Test (cloud)
+        run: cargo llvm-cov --no-report --features cloud
+      - name: 🧪 Test (render)
+        run: cargo llvm-cov --no-report --features render
+      - name: 🧪 Test (all features)
+        run: cargo llvm-cov --no-report --all-features
+
+      - name: 📊 Generate coverage report
+        run: |
+          cargo llvm-cov report --summary-only --output-path coverage.json --json
+          cargo llvm-cov report --html --output-dir coverage-html
+      - name: 📎 Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-html/
+      - name: 📝 Coverage summary
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          jq -r '
+            .data[0].totals |
+            "## 📊 Code Coverage\n",
+            "| Metric | Covered | Total | % |",
+            "|--------|---------|-------|---|",
+            "| Lines | \(.lines.covered) | \(.lines.count) | \(.lines.percent | . * 10 | round / 10)% |",
+            "| Functions | \(.functions.covered) | \(.functions.count) | \(.functions.percent | . * 10 | round / 10)% |",
+            "| Regions | \(.regions.covered) | \(.regions.count) | \(.regions.percent | . * 10 | round / 10)% |"
+          ' coverage.json >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📎 [HTML report](${RUN_URL}#artifacts) — scroll to the *Artifacts* section at the bottom of the page" >> $GITHUB_STEP_SUMMARY
+      - name: 💬 PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const t = JSON.parse(fs.readFileSync('coverage.json', 'utf8')).data[0].totals;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const fmt = (m) => `| ${m.covered} | ${m.count} | ${m.percent.toFixed(1)}% |`;
+            const body = [
+              '## 📊 Code Coverage',
+              '',
+              '| Metric | Covered | Total | % |',
+              '|--------|---------|-------|---|',
+              `| **Lines** ${fmt(t.lines)}`,
+              `| Functions ${fmt(t.functions)}`,
+              `| Regions ${fmt(t.regions)}`,
+              '',
+              `📎 [HTML report](${runUrl}#artifacts) — scroll to the *Artifacts* section at the bottom of the page`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.startsWith('## 📊 Code Coverage'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: 📖 Doc
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"

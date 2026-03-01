@@ -4,29 +4,47 @@ use std::fmt;
 use serde_json::Value;
 use thiserror::Error;
 
+/// Errors from parsing DPS values.
 #[derive(Debug, Error)]
 pub enum ParseError {
+    /// String value doesn't match any known variant.
     #[error("unknown variant: {0}")]
     UnknownVariant(String),
+    /// DP value is invalid for the expected type.
     #[error("invalid DP value for DP {dp}: {reason}")]
-    InvalidDpValue { dp: u8, reason: String },
+    InvalidDpValue {
+        /// DP number.
+        dp: u8,
+        /// Description of what went wrong.
+        reason: String,
+    },
 }
 
 // ── Mode (DP 4) ────────────────────────────────────────────
 
+/// Vacuum cleaning mode (DP 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mode {
+    /// Return to charging dock.
     ChargeGo,
+    /// Idle/standby.
     Standby,
+    /// Automatic full-house cleaning.
     Smart,
+    /// Follow walls/edges.
     WallFollow,
+    /// Spiral spot clean.
     Spiral,
+    /// Room-based cleaning.
     SelectRoom,
+    /// Zone-based cleaning.
     Zone,
+    /// Partial/spot cleaning.
     Part,
 }
 
 impl Mode {
+    /// Return the Tuya protocol string for this mode.
     pub fn as_str(&self) -> &'static str {
         match self {
             Mode::ChargeGo => "chargego",
@@ -66,20 +84,31 @@ impl fmt::Display for Mode {
 
 // ── Status (DP 5) ──────────────────────────────────────────
 
+/// Vacuum operational status (DP 5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Status {
+    /// Fully charged.
     ChargeDone,
+    /// Currently charging.
     Charging,
+    /// Actively cleaning.
     Cleaning,
+    /// Waiting for room selection.
     SelectRoom,
+    /// Repositioning.
     Repositing,
+    /// Returning to dock.
     GotoCharge,
+    /// Paused.
     Paused,
+    /// Error/fault state.
     Fault,
+    /// Smart mode active.
     Smart,
 }
 
 impl Status {
+    /// Return the Tuya protocol string for this status.
     pub fn as_str(&self) -> &'static str {
         match self {
             Status::ChargeDone => "charge_done",
@@ -121,15 +150,21 @@ impl fmt::Display for Status {
 
 // ── SuctionLevel (DP 9) ────────────────────────────────────
 
+/// Vacuum suction power level (DP 9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SuctionLevel {
+    /// Low suction.
     Gentle,
+    /// Default suction.
     Normal,
+    /// High suction.
     Strong,
+    /// Maximum suction.
     Max,
 }
 
 impl SuctionLevel {
+    /// Return the Tuya protocol string for this level.
     pub fn as_str(&self) -> &'static str {
         match self {
             SuctionLevel::Gentle => "gentle",
@@ -161,15 +196,21 @@ impl fmt::Display for SuctionLevel {
 
 // ── MopLevel (DP 10) ───────────────────────────────────────
 
+/// Mopping water flow level (DP 10).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MopLevel {
+    /// Mopping disabled.
     Closed,
+    /// Low water flow.
     Low,
+    /// Medium water flow.
     Middle,
+    /// High water flow.
     High,
 }
 
 impl MopLevel {
+    /// Return the Tuya protocol string for this level.
     pub fn as_str(&self) -> &'static str {
         match self {
             MopLevel::Closed => "closed",
@@ -201,67 +242,89 @@ impl fmt::Display for MopLevel {
 
 // ── Consumable ─────────────────────────────────────────────
 
+/// Consumable part wear tracking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Consumable {
+    /// Remaining useful life in minutes.
     pub remaining_minutes: u16,
 }
 
 // ── CleaningStats ──────────────────────────────────────────
 
+/// Cumulative cleaning statistics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CleaningStats {
+    /// Total cleaned area in m2.
     pub total_area_m2: u32,
+    /// Total cleaning sessions.
     pub total_sessions: u32,
+    /// Total cleaning time in minutes.
     pub total_time_minutes: u32,
 }
 
 // ── SessionProgress ────────────────────────────────────────
 
+/// Current cleaning session progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionProgress {
+    /// Area cleaned in m2 this session.
     pub area_m2: u16,
+    /// Time elapsed in minutes this session.
     pub time_minutes: u16,
 }
 
 // ── MapBitmap (DP 102) ─────────────────────────────────────
 
+/// Map status bitfield (DP 102).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapBitmap(pub u16);
 
 impl MapBitmap {
+    /// Bit 0: room split in progress.
     pub fn split(&self) -> bool {
         self.0 & (1 << 0) != 0
     }
+    /// Bit 1: room merge in progress.
     pub fn merger(&self) -> bool {
         self.0 & (1 << 1) != 0
     }
+    /// Bit 2: map available.
     pub fn map(&self) -> bool {
         self.0 & (1 << 2) != 0
     }
+    /// Bit 3: cleaning in progress.
     pub fn cleaning(&self) -> bool {
         self.0 & (1 << 3) != 0
     }
+    /// Bit 4: active room split.
     pub fn active_split(&self) -> bool {
         self.0 & (1 << 4) != 0
     }
+    /// Bit 5: not triggered by human.
     pub fn not_by_human(&self) -> bool {
         self.0 & (1 << 5) != 0
     }
+    /// Bit 6: map save failed.
     pub fn save_fail(&self) -> bool {
         self.0 & (1 << 6) != 0
     }
+    /// Bit 7: room split succeeded.
     pub fn split_success(&self) -> bool {
         self.0 & (1 << 7) != 0
     }
+    /// Bit 8: room merge succeeded.
     pub fn merger_success(&self) -> bool {
         self.0 & (1 << 8) != 0
     }
+    /// Bit 9: selected room not found.
     pub fn choice_not_found(&self) -> bool {
         self.0 & (1 << 9) != 0
     }
+    /// Bit 10: room count error.
     pub fn count_error(&self) -> bool {
         self.0 & (1 << 10) != 0
     }
+    /// Bit 11: room selection applied.
     pub fn choice_set_ok(&self) -> bool {
         self.0 & (1 << 11) != 0
     }
@@ -269,34 +332,80 @@ impl MapBitmap {
 
 // ── DpsEvent ───────────────────────────────────────────────
 
+/// A parsed DPS change event from the device.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DpsEvent {
+    /// Power state (DP 1).
     Power(bool),
+    /// Start/stop (DP 2).
     Start(bool),
+    /// Cleaning mode (DP 4).
     Mode(Mode),
+    /// Operational status (DP 5).
     Status(Status),
+    /// Current session area in m2 (DP 6).
     Area(u16),
+    /// Current session time in minutes (DP 7).
     Time(u16),
+    /// Battery percentage (DP 8).
     Battery(u8),
+    /// Suction level (DP 9).
     Suction(SuctionLevel),
+    /// Mop level (DP 10).
     Mop(MopLevel),
+    /// Locate beep (DP 13).
     Locate(bool),
+    /// Raw DP 15 command bytes.
     CommandTrans(Vec<u8>),
+    /// Side brush remaining life (DP 17).
     SideBrush(Consumable),
+    /// Main brush remaining life (DP 19).
     MainBrush(Consumable),
+    /// Filter remaining life (DP 21).
     Filter(Consumable),
+    /// Do Not Disturb (DP 25).
     Dnd(bool),
+    /// Speaker volume (DP 26).
     Volume(u8),
+    /// Fault code (DP 28).
     Fault(u8),
+    /// Cumulative cleaned area (DP 29).
     TotalArea(u32),
+    /// Cumulative session count (DP 30).
     TotalSessions(u32),
+    /// Cumulative cleaning time (DP 31).
     TotalTime(u32),
+    /// Map status bitfield (DP 102).
     MapBitmapEvent(MapBitmap),
+    /// Environment settings (DP 105).
     EnvSettings(bool),
-    Unknown { dp: u8, value: String },
+    /// Unknown DP event.
+    Unknown {
+        /// DP number.
+        dp: u8,
+        /// Raw JSON value string.
+        value: String,
+    },
 }
 
 impl DpsEvent {
+    /// Parse a DP number and JSON value into a typed event.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use xplorer_rs::types::{DpsEvent, Mode, SuctionLevel};
+    /// use serde_json::json;
+    ///
+    /// let event = DpsEvent::parse(1, &json!(true)).unwrap();
+    /// assert_eq!(event, DpsEvent::Power(true));
+    ///
+    /// let event = DpsEvent::parse(4, &json!("smart")).unwrap();
+    /// assert_eq!(event, DpsEvent::Mode(Mode::Smart));
+    ///
+    /// let event = DpsEvent::parse(9, &json!("strong")).unwrap();
+    /// assert_eq!(event, DpsEvent::Suction(SuctionLevel::Strong));
+    /// ```
     pub fn parse(dp: u8, value: &Value) -> Result<Self, ParseError> {
         let err = |reason: &str| ParseError::InvalidDpValue {
             dp,
@@ -412,28 +521,67 @@ impl DpsEvent {
 
 // ── DeviceState ────────────────────────────────────────────
 
+/// Full device state assembled from DPS values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeviceState {
+    /// Power on/off (DP 1).
     pub power: bool,
+    /// Running state (DP 2).
     pub start: bool,
+    /// Current mode (DP 4).
     pub mode: Mode,
+    /// Current status (DP 5).
     pub status: Status,
+    /// Current session progress (DP 6+7).
     pub session: SessionProgress,
+    /// Battery percentage (DP 8).
     pub battery: u8,
+    /// Suction level (DP 9).
     pub suction: SuctionLevel,
+    /// Mop level (DP 10).
     pub mop: MopLevel,
+    /// Side brush wear (DP 17).
     pub side_brush: Consumable,
+    /// Main brush wear (DP 19).
     pub main_brush: Consumable,
+    /// Filter wear (DP 21).
     pub filter: Consumable,
+    /// Do Not Disturb (DP 25).
     pub dnd: bool,
+    /// Speaker volume (DP 26).
     pub volume: u8,
+    /// Fault code (DP 28).
     pub fault: u8,
+    /// Cumulative cleaning stats (DP 29-31).
     pub stats: CleaningStats,
+    /// Map status bitfield (DP 102).
     pub map_bitmap: MapBitmap,
+    /// Environment settings (DP 105).
     pub env_settings: bool,
 }
 
 impl DeviceState {
+    /// Build a device state from a DPS key-value map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde_json::json;
+    /// use xplorer_rs::types::{DeviceState, Mode, Status};
+    ///
+    /// let dps: HashMap<String, serde_json::Value> = serde_json::from_value(json!({
+    ///     "1": true,
+    ///     "4": "smart",
+    ///     "5": "cleaning",
+    ///     "8": 72
+    /// })).unwrap();
+    /// let state = DeviceState::from_dps(&dps).unwrap();
+    /// assert!(state.power);
+    /// assert_eq!(state.mode, Mode::Smart);
+    /// assert_eq!(state.status, Status::Cleaning);
+    /// assert_eq!(state.battery, 72);
+    /// ```
     pub fn from_dps(dps: &HashMap<String, Value>) -> Result<Self, ParseError> {
         let get_bool = |key: &str, default: bool| -> bool {
             dps.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
@@ -739,6 +887,137 @@ mod tests {
         );
     }
 
+    // ── Display ─────────────────────────────────────────────
+
+    #[test]
+    fn mode_display() {
+        assert_eq!(format!("{}", Mode::Smart), "smart");
+        assert_eq!(format!("{}", Mode::ChargeGo), "chargego");
+    }
+
+    #[test]
+    fn status_display() {
+        assert_eq!(format!("{}", Status::Cleaning), "cleaning");
+        assert_eq!(format!("{}", Status::Paused), "paused");
+    }
+
+    #[test]
+    fn suction_display() {
+        assert_eq!(format!("{}", SuctionLevel::Max), "max");
+        assert_eq!(format!("{}", SuctionLevel::Gentle), "gentle");
+    }
+
+    #[test]
+    fn mop_display() {
+        assert_eq!(format!("{}", MopLevel::High), "high");
+        assert_eq!(format!("{}", MopLevel::Closed), "closed");
+    }
+
+    // ── MapBitmap ─────────────────────────────────────────
+
+    #[test]
+    fn map_bitmap_all_bits() {
+        // Each bit individually
+        assert!(MapBitmap(1 << 0).split());
+        assert!(MapBitmap(1 << 1).merger());
+        assert!(MapBitmap(1 << 2).map());
+        assert!(MapBitmap(1 << 3).cleaning());
+        assert!(MapBitmap(1 << 4).active_split());
+        assert!(MapBitmap(1 << 5).not_by_human());
+        assert!(MapBitmap(1 << 6).save_fail());
+        assert!(MapBitmap(1 << 7).split_success());
+        assert!(MapBitmap(1 << 8).merger_success());
+        assert!(MapBitmap(1 << 9).choice_not_found());
+        assert!(MapBitmap(1 << 10).count_error());
+        assert!(MapBitmap(1 << 11).choice_set_ok());
+
+        // Zero has no bits set
+        let empty = MapBitmap(0);
+        assert!(!empty.split());
+        assert!(!empty.merger());
+        assert!(!empty.map());
+        assert!(!empty.cleaning());
+        assert!(!empty.active_split());
+        assert!(!empty.not_by_human());
+        assert!(!empty.save_fail());
+        assert!(!empty.split_success());
+        assert!(!empty.merger_success());
+        assert!(!empty.choice_not_found());
+        assert!(!empty.count_error());
+        assert!(!empty.choice_set_ok());
+    }
+
+    // ── DpsEvent::parse — missing DPs ─────────────────────
+
+    #[test]
+    fn parse_dp2_start() {
+        assert_eq!(
+            DpsEvent::parse(2, &json!(true)).unwrap(),
+            DpsEvent::Start(true)
+        );
+    }
+
+    #[test]
+    fn parse_dp6_area() {
+        assert_eq!(DpsEvent::parse(6, &json!(25)).unwrap(), DpsEvent::Area(25));
+    }
+
+    #[test]
+    fn parse_dp7_time() {
+        assert_eq!(DpsEvent::parse(7, &json!(30)).unwrap(), DpsEvent::Time(30));
+    }
+
+    #[test]
+    fn parse_dp13_locate() {
+        assert_eq!(
+            DpsEvent::parse(13, &json!(true)).unwrap(),
+            DpsEvent::Locate(true)
+        );
+    }
+
+    #[test]
+    fn parse_dp25_dnd() {
+        assert_eq!(
+            DpsEvent::parse(25, &json!(false)).unwrap(),
+            DpsEvent::Dnd(false)
+        );
+    }
+
+    #[test]
+    fn parse_dp105_env_settings() {
+        assert_eq!(
+            DpsEvent::parse(105, &json!(true)).unwrap(),
+            DpsEvent::EnvSettings(true)
+        );
+    }
+
+    // ── DpsEvent::parse — error paths ─────────────────────
+
+    #[test]
+    fn parse_dp1_wrong_type() {
+        assert!(DpsEvent::parse(1, &json!("true")).is_err());
+    }
+
+    #[test]
+    fn parse_dp4_wrong_type() {
+        assert!(DpsEvent::parse(4, &json!(42)).is_err());
+    }
+
+    #[test]
+    fn parse_dp8_wrong_type() {
+        assert!(DpsEvent::parse(8, &json!("high")).is_err());
+    }
+
+    #[test]
+    fn parse_dp15_invalid_base64() {
+        assert!(DpsEvent::parse(15, &json!("!!!not-base64!!!")).is_err());
+    }
+
+    #[test]
+    fn parse_dp15_wrong_type() {
+        assert!(DpsEvent::parse(15, &json!(42)).is_err());
+    }
+
     // ── DeviceState::from_dps ──────────────────────────────
 
     #[test]
@@ -800,5 +1079,144 @@ mod tests {
         assert_eq!(state.battery, 0);
         assert_eq!(state.suction, SuctionLevel::Normal);
         assert_eq!(state.mop, MopLevel::Closed);
+    }
+
+    // ── Unknown enum variants ─────────────────────────────
+
+    #[test]
+    fn status_unknown_variant() {
+        assert!(Status::try_from("nonexistent").is_err());
+    }
+
+    #[test]
+    fn suction_unknown_variant() {
+        assert!(SuctionLevel::try_from("turbo").is_err());
+    }
+
+    #[test]
+    fn mop_unknown_variant() {
+        assert!(MopLevel::try_from("ultra").is_err());
+    }
+
+    // ── Type mismatch error paths ─────────────────────────
+
+    #[test]
+    fn parse_dp2_wrong_type() {
+        assert!(DpsEvent::parse(2, &json!("yes")).is_err());
+    }
+
+    #[test]
+    fn parse_dp5_wrong_type() {
+        assert!(DpsEvent::parse(5, &json!(42)).is_err());
+    }
+
+    #[test]
+    fn parse_dp9_wrong_type() {
+        assert!(DpsEvent::parse(9, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn parse_dp10_wrong_type() {
+        assert!(DpsEvent::parse(10, &json!(3)).is_err());
+    }
+
+    #[test]
+    fn parse_dp13_wrong_type() {
+        assert!(DpsEvent::parse(13, &json!("yes")).is_err());
+    }
+
+    #[test]
+    fn parse_dp6_wrong_type() {
+        assert!(DpsEvent::parse(6, &json!("big")).is_err());
+    }
+
+    #[test]
+    fn parse_dp7_wrong_type() {
+        assert!(DpsEvent::parse(7, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn parse_dp17_wrong_type() {
+        assert!(DpsEvent::parse(17, &json!("old")).is_err());
+    }
+
+    #[test]
+    fn parse_dp19_wrong_type() {
+        assert!(DpsEvent::parse(19, &json!(false)).is_err());
+    }
+
+    #[test]
+    fn parse_dp21_wrong_type() {
+        assert!(DpsEvent::parse(21, &json!("low")).is_err());
+    }
+
+    #[test]
+    fn parse_dp25_wrong_type() {
+        assert!(DpsEvent::parse(25, &json!(1)).is_err());
+    }
+
+    #[test]
+    fn parse_dp26_wrong_type() {
+        assert!(DpsEvent::parse(26, &json!("loud")).is_err());
+    }
+
+    #[test]
+    fn parse_dp28_wrong_type() {
+        assert!(DpsEvent::parse(28, &json!("none")).is_err());
+    }
+
+    #[test]
+    fn parse_dp29_wrong_type() {
+        assert!(DpsEvent::parse(29, &json!(false)).is_err());
+    }
+
+    #[test]
+    fn parse_dp30_wrong_type() {
+        assert!(DpsEvent::parse(30, &json!("many")).is_err());
+    }
+
+    #[test]
+    fn parse_dp31_wrong_type() {
+        assert!(DpsEvent::parse(31, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn parse_dp102_wrong_type() {
+        assert!(DpsEvent::parse(102, &json!("bitmap")).is_err());
+    }
+
+    #[test]
+    fn parse_dp105_wrong_type() {
+        assert!(DpsEvent::parse(105, &json!(1)).is_err());
+    }
+
+    // ── DeviceState::from_dps error paths ─────────────────
+
+    #[test]
+    fn device_state_from_dps_invalid_mode() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"4": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
+    }
+
+    #[test]
+    fn device_state_from_dps_invalid_status() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"5": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
+    }
+
+    #[test]
+    fn device_state_from_dps_invalid_suction() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"9": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
+    }
+
+    #[test]
+    fn device_state_from_dps_invalid_mop() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"10": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
     }
 }

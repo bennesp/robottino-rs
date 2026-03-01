@@ -2,11 +2,16 @@
 name = "tuya-rs"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+authors = ["bennesp"]
 description = "Tuya v3.3 local device protocol — TCP connection, packet codec, AES encryption"
 license = "MIT"
 repository = "https://github.com/bennesp/robottino-rs"
+documentation = "https://docs.rs/tuya-rs"
+readme = "README.md"
 keywords = ["tuya", "iot", "smart-home"]
 categories = ["network-programming"]
+exclude = ["tests/", "testdata/"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -24,6 +29,9 @@ num-bigint = { version = "0.4", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 reqwest = { version = "0.13", features = ["json"], optional = true }
 tokio = { version = "1", features = ["rt"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
 
 [features]
 default = []

@@ -1,5 +1,8 @@
 # robottino-rs
 
+[![Lint & Test](https://github.com/bennesp/robottino-rs/actions/workflows/lint-test.yaml/badge.svg)](https://github.com/bennesp/robottino-rs/actions/workflows/lint-test.yaml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Rust workspace for local control of **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners via the Tuya v3.3 protocol.
 
 ## Crates

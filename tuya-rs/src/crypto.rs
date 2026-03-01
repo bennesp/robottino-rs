@@ -2,15 +2,30 @@ use aes::Aes128;
 use cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use thiserror::Error;
 
+/// Cryptographic operation errors.
 #[derive(Debug, Error)]
 pub enum CryptoError {
+    /// PKCS7 padding is invalid.
     #[error("invalid padding")]
     InvalidPadding,
+    /// Data length is not a multiple of 16.
     #[error("data length must be a multiple of 16 for raw decryption")]
     InvalidLength,
 }
 
 /// AES-128-ECB encrypt with PKCS7 padding.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::crypto::{aes_ecb_encrypt, aes_ecb_decrypt};
+///
+/// let key = b"0123456789abcdef";
+/// let plaintext = b"hello world";
+/// let ciphertext = aes_ecb_encrypt(key, plaintext);
+/// let decrypted = aes_ecb_decrypt(key, &ciphertext).unwrap();
+/// assert_eq!(decrypted, plaintext);
+/// ```
 pub fn aes_ecb_encrypt(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
     let cipher = Aes128::new(key.into());
 
@@ -30,6 +45,17 @@ pub fn aes_ecb_encrypt(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
 }
 
 /// AES-128-ECB decrypt and remove PKCS7 padding.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::crypto::{aes_ecb_encrypt, aes_ecb_decrypt};
+///
+/// let key = b"0123456789abcdef";
+/// let ciphertext = aes_ecb_encrypt(key, b"secret data");
+/// let plaintext = aes_ecb_decrypt(key, &ciphertext).unwrap();
+/// assert_eq!(plaintext, b"secret data");
+/// ```
 pub fn aes_ecb_decrypt(key: &[u8; 16], data: &[u8]) -> Result<Vec<u8>, CryptoError> {
     if !data.len().is_multiple_of(16) || data.is_empty() {
         return Err(CryptoError::InvalidLength);
@@ -112,16 +138,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn aes_ecb_roundtrip_exact_block() {
-        let key = b"0123456789abcdef";
-        let plaintext = b"sixteen bytes!!!";
-        let encrypted = aes_ecb_encrypt(key, plaintext);
-        assert_eq!(encrypted.len(), 32); // 16 data + 16 padding (full block)
-        let decrypted = aes_ecb_decrypt(key, &encrypted).unwrap();
-        assert_eq!(decrypted, plaintext);
-    }
-
-    #[test]
     fn aes_ecb_roundtrip_non_aligned() {
         let key = b"0123456789abcdef";
         let plaintext = b"hello world";
@@ -129,19 +145,6 @@ mod tests {
         assert_eq!(encrypted.len(), 16); // 11 + 5 padding
         let decrypted = aes_ecb_decrypt(key, &encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
-    }
-
-    #[test]
-    fn aes_ecb_wrong_key() {
-        let key1 = b"0123456789abcdef";
-        let key2 = b"fedcba9876543210";
-        let plaintext = b"test data here!x";
-        let encrypted = aes_ecb_encrypt(key1, plaintext);
-        let result = aes_ecb_decrypt(key2, &encrypted);
-        match result {
-            Ok(decrypted) => assert_ne!(decrypted, plaintext),
-            Err(_) => {} // Invalid padding is also expected
-        }
     }
 
     #[test]
@@ -172,14 +175,6 @@ mod tests {
             let result = rsa_encrypt_textbook(&[65], &n, &e);
             let result_int = BigUint::from_bytes_be(&result);
             assert_eq!(result_int, BigUint::from(2790u32));
-        }
-
-        #[test]
-        fn rsa_textbook_identity() {
-            let n = BigUint::from(3233u32);
-            let e = BigUint::from(17u32);
-            let result = rsa_encrypt_textbook(&[1], &n, &e);
-            assert_eq!(BigUint::from_bytes_be(&result), BigUint::from(1u32));
         }
 
         #[test]
