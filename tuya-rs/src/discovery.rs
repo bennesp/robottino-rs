@@ -57,6 +57,20 @@ pub struct DiscoveredDevice {
     pub encrypt: bool,
 }
 
+/// Abstraction over a non-blocking UDP receiver.
+///
+/// Implement this trait to provide a custom UDP backend (e.g. for testing).
+pub trait UdpReceiver {
+    /// Try to receive data. Returns `Err(WouldBlock)` if no data is available.
+    fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize>;
+}
+
+impl UdpReceiver for UdpSocket {
+    fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        UdpSocket::recv(self, buf)
+    }
+}
+
 /// Discover Tuya devices on the local network.
 ///
 /// Listens on UDP ports 6666 and 6667 for broadcast packets.
@@ -74,12 +88,28 @@ pub struct DiscoveredDevice {
 /// }
 /// ```
 pub fn discover(timeout: Duration) -> Result<Vec<DiscoveredDevice>, DiscoveryError> {
-    let mut devices: HashMap<String, DiscoveredDevice> = HashMap::new();
-
     let sock_plain = bind_udp(6666)?;
     let sock_encrypted = bind_udp(6667)?;
+    discover_with(&sock_plain, &sock_encrypted, timeout)
+}
 
-    // Pre-compute both decryption keys
+/// Discover a single device, returning as soon as one is found.
+///
+/// Useful when you know there's exactly one Tuya device on the network.
+pub fn discover_one(timeout: Duration) -> Result<DiscoveredDevice, DiscoveryError> {
+    let sock_plain = bind_udp(6666)?;
+    let sock_encrypted = bind_udp(6667)?;
+    discover_one_with(&sock_plain, &sock_encrypted, timeout)
+}
+
+/// Discovery loop over two generic receivers (plaintext + encrypted).
+fn discover_with<R: UdpReceiver>(
+    plain: &R,
+    encrypted: &R,
+    timeout: Duration,
+) -> Result<Vec<DiscoveredDevice>, DiscoveryError> {
+    let mut devices: HashMap<String, DiscoveredDevice> = HashMap::new();
+
     let key_raw = *UDP_KEY;
     let key_md5 = md5_key(&key_raw);
 
@@ -92,15 +122,13 @@ pub fn discover(timeout: Duration) -> Result<Vec<DiscoveredDevice>, DiscoveryErr
             break;
         }
 
-        // Try plaintext socket
-        if let Ok(n) = sock_plain.recv(&mut buf)
+        if let Ok(n) = plain.recv(&mut buf)
             && let Some(dev) = parse_plaintext(&buf[..n])
         {
             devices.entry(dev.device_id.clone()).or_insert(dev);
         }
 
-        // Try encrypted socket
-        if let Ok(n) = sock_encrypted.recv(&mut buf)
+        if let Ok(n) = encrypted.recv(&mut buf)
             && let Some(dev) = parse_encrypted(&buf[..n], &key_md5, &key_raw)
         {
             devices.entry(dev.device_id.clone()).or_insert(dev);
@@ -110,13 +138,12 @@ pub fn discover(timeout: Duration) -> Result<Vec<DiscoveredDevice>, DiscoveryErr
     Ok(devices.into_values().collect())
 }
 
-/// Discover a single device, returning as soon as one is found.
-///
-/// Useful when you know there's exactly one Tuya device on the network.
-pub fn discover_one(timeout: Duration) -> Result<DiscoveredDevice, DiscoveryError> {
-    let sock_plain = bind_udp(6666)?;
-    let sock_encrypted = bind_udp(6667)?;
-
+/// Single-device discovery loop over two generic receivers.
+fn discover_one_with<R: UdpReceiver>(
+    plain: &R,
+    encrypted: &R,
+    timeout: Duration,
+) -> Result<DiscoveredDevice, DiscoveryError> {
     let key_raw = *UDP_KEY;
     let key_md5 = md5_key(&key_raw);
 
@@ -124,13 +151,13 @@ pub fn discover_one(timeout: Duration) -> Result<DiscoveredDevice, DiscoveryErro
     let mut buf = [0u8; 4096];
 
     while Instant::now() < deadline {
-        if let Ok(n) = sock_plain.recv(&mut buf)
+        if let Ok(n) = plain.recv(&mut buf)
             && let Some(dev) = parse_plaintext(&buf[..n])
         {
             return Ok(dev);
         }
 
-        if let Ok(n) = sock_encrypted.recv(&mut buf)
+        if let Ok(n) = encrypted.recv(&mut buf)
             && let Some(dev) = parse_encrypted(&buf[..n], &key_md5, &key_raw)
         {
             return Ok(dev);
@@ -194,6 +221,66 @@ fn parse_encrypted(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::io;
+
+    // ── MockUdpReceiver ───────────────────────────────────
+
+    struct MockReceiver {
+        packets: RefCell<VecDeque<Vec<u8>>>,
+    }
+
+    impl MockReceiver {
+        fn new(packets: Vec<Vec<u8>>) -> Self {
+            Self {
+                packets: RefCell::new(packets.into()),
+            }
+        }
+
+        fn empty() -> Self {
+            Self::new(vec![])
+        }
+    }
+
+    impl UdpReceiver for MockReceiver {
+        fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+            match self.packets.borrow_mut().pop_front() {
+                Some(data) => {
+                    let n = data.len().min(buf.len());
+                    buf[..n].copy_from_slice(&data[..n]);
+                    Ok(n)
+                }
+                None => Err(io::Error::new(io::ErrorKind::WouldBlock, "no data")),
+            }
+        }
+    }
+
+    /// Build a plaintext discovery packet.
+    fn plaintext_packet(device_id: &str, ip: &str) -> Vec<u8> {
+        format!(r#"{{"ip":"{ip}","gwId":"{device_id}","version":"3.3"}}"#).into_bytes()
+    }
+
+    /// Build an encrypted discovery packet.
+    fn encrypted_packet(device_id: &str, ip: &str) -> Vec<u8> {
+        let json =
+            format!(r#"{{"ip":"{ip}","gwId":"{device_id}","version":"3.3","encrypt":true}}"#);
+        let key_md5 = md5_key(UDP_KEY);
+        let encrypted = crypto::aes_ecb_encrypt(&key_md5, json.as_bytes());
+
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&MAGIC_PREFIX);
+        packet.extend_from_slice(&[0u8; 4]); // seq
+        packet.extend_from_slice(&[0u8; 4]); // cmd
+        packet.extend_from_slice(&[0u8; 4]); // len
+        packet.extend_from_slice(&[0u8; 4]); // return_code
+        packet.extend_from_slice(&encrypted);
+        packet.extend_from_slice(&[0u8; 4]); // crc
+        packet.extend_from_slice(&[0u8; 4]); // suffix
+        packet
+    }
+
+    // ── parse_* tests (existing) ──────────────────────────
 
     #[test]
     fn parse_plaintext_json() {
@@ -207,7 +294,6 @@ mod tests {
 
     #[test]
     fn parse_plaintext_with_prefix_suffix() {
-        // Simulate Tuya packet wrapping around JSON
         let mut data = vec![0x00, 0x00, 0x55, 0xAA];
         data.extend_from_slice(
             br#"{"ip":"10.0.0.1","gwId":"dev456","version":"3.4","productKey":"pk789"}"#,
@@ -221,21 +307,20 @@ mod tests {
 
     #[test]
     fn parse_encrypted_roundtrip() {
-        // Build a fake encrypted packet
         let json = br#"{"ip":"192.168.1.50","gwId":"enc789","version":"3.3","encrypt":true}"#;
         let key_md5 = md5_key(UDP_KEY);
         let encrypted = crypto::aes_ecb_encrypt(&key_md5, json);
 
         let mut packet = Vec::new();
-        packet.extend_from_slice(&MAGIC_PREFIX); // prefix
-        packet.extend_from_slice(&[0u8; 4]); // seq
-        packet.extend_from_slice(&[0, 0, 0, 0x13]); // cmd = 19
-        let data_len = (4 + encrypted.len() + 4) as u32; // ret + payload + crc
-        packet.extend_from_slice(&data_len.to_be_bytes()); // len
-        packet.extend_from_slice(&[0u8; 4]); // return_code
-        packet.extend_from_slice(&encrypted); // encrypted payload
-        packet.extend_from_slice(&[0u8; 4]); // crc (not validated in discovery)
-        packet.extend_from_slice(&[0x00, 0x00, 0xAA, 0x55]); // suffix
+        packet.extend_from_slice(&MAGIC_PREFIX);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0, 0, 0, 0x13]);
+        let data_len = (4 + encrypted.len() + 4) as u32;
+        packet.extend_from_slice(&data_len.to_be_bytes());
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&encrypted);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0x00, 0x00, 0xAA, 0x55]);
 
         let key_raw = *UDP_KEY;
         let dev = parse_encrypted(&packet, &key_md5, &key_raw).unwrap();
@@ -245,19 +330,18 @@ mod tests {
 
     #[test]
     fn parse_encrypted_with_raw_key() {
-        // Some v3.3 devices use the raw key instead of md5
         let json = br#"{"ip":"10.0.0.5","gwId":"raw123","version":"3.3"}"#;
         let encrypted = crypto::aes_ecb_encrypt(UDP_KEY, json);
 
         let mut packet = Vec::new();
         packet.extend_from_slice(&MAGIC_PREFIX);
-        packet.extend_from_slice(&[0u8; 4]); // seq
-        packet.extend_from_slice(&[0, 0, 0, 0x13]); // cmd
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0, 0, 0, 0x13]);
         let data_len = (4 + encrypted.len() + 4) as u32;
         packet.extend_from_slice(&data_len.to_be_bytes());
-        packet.extend_from_slice(&[0u8; 4]); // return_code
+        packet.extend_from_slice(&[0u8; 4]);
         packet.extend_from_slice(&encrypted);
-        packet.extend_from_slice(&[0u8; 4]); // crc
+        packet.extend_from_slice(&[0u8; 4]);
         packet.extend_from_slice(&[0x00, 0x00, 0xAA, 0x55]);
 
         let key_md5 = md5_key(UDP_KEY);
@@ -267,19 +351,180 @@ mod tests {
     }
 
     #[test]
-    fn parse_encrypted_garbage() {
-        let key_md5 = md5_key(UDP_KEY);
-        let key_raw = *UDP_KEY;
-
-        assert!(parse_encrypted(&[], &key_md5, &key_raw).is_none());
-        assert!(parse_encrypted(&[0u8; 28], &key_md5, &key_raw).is_none());
+    fn parse_plaintext_no_braces() {
+        assert!(parse_plaintext(b"no json here").is_none());
+        assert!(parse_plaintext(b"").is_none());
     }
 
     #[test]
-    fn md5_key_is_deterministic() {
-        let k1 = md5_key(UDP_KEY);
-        let k2 = md5_key(UDP_KEY);
-        assert_eq!(k1, k2);
-        assert_ne!(&k1, UDP_KEY, "md5 key should differ from raw key");
+    fn parse_plaintext_invalid_json() {
+        assert!(parse_plaintext(b"{not valid json}").is_none());
+    }
+
+    #[test]
+    fn parse_encrypted_bad_prefix() {
+        let key_md5 = md5_key(UDP_KEY);
+        let key_raw = *UDP_KEY;
+        let mut data = vec![0xFF; 32];
+        data[..4].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+        assert!(parse_encrypted(&data, &key_md5, &key_raw).is_none());
+    }
+
+    #[test]
+    fn parse_encrypted_empty_payload() {
+        let key_md5 = md5_key(UDP_KEY);
+        let key_raw = *UDP_KEY;
+        let mut data = vec![0u8; 28];
+        data[..4].copy_from_slice(&MAGIC_PREFIX);
+        assert!(parse_encrypted(&data, &key_md5, &key_raw).is_none());
+    }
+
+    #[test]
+    fn parse_encrypted_non_aligned_payload() {
+        let key_md5 = md5_key(UDP_KEY);
+        let key_raw = *UDP_KEY;
+        let mut data = vec![0u8; 37];
+        data[..4].copy_from_slice(&MAGIC_PREFIX);
+        assert!(parse_encrypted(&data, &key_md5, &key_raw).is_none());
+    }
+
+    #[test]
+    fn parse_encrypted_valid_aes_but_invalid_json() {
+        let key_md5 = md5_key(UDP_KEY);
+        let key_raw = *UDP_KEY;
+        let encrypted = crypto::aes_ecb_encrypt(&key_md5, b"not json at all!");
+
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&MAGIC_PREFIX);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&encrypted);
+        packet.extend_from_slice(&[0u8; 4]);
+        packet.extend_from_slice(&[0u8; 4]);
+        assert!(parse_encrypted(&packet, &key_md5, &key_raw).is_none());
+    }
+
+    #[test]
+    fn discovered_device_defaults() {
+        let json = br#"{"ip":"10.0.0.1","gwId":"d1"}"#;
+        let dev = parse_plaintext(json).unwrap();
+        assert_eq!(dev.version, "");
+        assert_eq!(dev.product_key, "");
+        assert!(!dev.encrypt);
+    }
+
+
+    // ── discover_with tests ───────────────────────────────
+
+    #[test]
+    fn discover_with_plaintext_device() {
+        let plain = MockReceiver::new(vec![plaintext_packet("dev1", "10.0.0.1")]);
+        let encrypted = MockReceiver::empty();
+        let devices = discover_with(&plain, &encrypted, Duration::from_millis(10)).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].device_id, "dev1");
+        assert_eq!(devices[0].ip, "10.0.0.1");
+    }
+
+    #[test]
+    fn discover_with_encrypted_device() {
+        let plain = MockReceiver::empty();
+        let encrypted = MockReceiver::new(vec![encrypted_packet("dev2", "10.0.0.2")]);
+        let devices = discover_with(&plain, &encrypted, Duration::from_millis(10)).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].device_id, "dev2");
+        assert!(devices[0].encrypt);
+    }
+
+    #[test]
+    fn discover_with_deduplicates() {
+        let plain = MockReceiver::new(vec![
+            plaintext_packet("dev1", "10.0.0.1"),
+            plaintext_packet("dev1", "10.0.0.1"), // duplicate
+        ]);
+        let encrypted = MockReceiver::empty();
+        let devices = discover_with(&plain, &encrypted, Duration::from_millis(10)).unwrap();
+        assert_eq!(devices.len(), 1);
+    }
+
+    #[test]
+    fn discover_with_multiple_devices() {
+        let plain = MockReceiver::new(vec![
+            plaintext_packet("dev1", "10.0.0.1"),
+            plaintext_packet("dev2", "10.0.0.2"),
+        ]);
+        let encrypted = MockReceiver::new(vec![encrypted_packet("dev3", "10.0.0.3")]);
+        let devices = discover_with(&plain, &encrypted, Duration::from_millis(10)).unwrap();
+        assert_eq!(devices.len(), 3);
+    }
+
+    #[test]
+    fn discover_with_no_devices() {
+        let plain = MockReceiver::empty();
+        let encrypted = MockReceiver::empty();
+        let devices = discover_with(&plain, &encrypted, Duration::from_millis(10)).unwrap();
+        assert!(devices.is_empty());
+    }
+
+    #[test]
+    fn discover_with_ignores_garbage() {
+        let plain = MockReceiver::new(vec![
+            b"not json".to_vec(),
+            plaintext_packet("dev1", "10.0.0.1"),
+        ]);
+        let encrypted = MockReceiver::new(vec![vec![0xFF; 32]]);
+        let devices = discover_with(&plain, &encrypted, Duration::from_millis(10)).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].device_id, "dev1");
+    }
+
+    // ── discover_one_with tests ───────────────────────────
+
+    #[test]
+    fn discover_one_with_plaintext() {
+        let plain = MockReceiver::new(vec![plaintext_packet("dev1", "10.0.0.1")]);
+        let encrypted = MockReceiver::empty();
+        let dev = discover_one_with(&plain, &encrypted, Duration::from_millis(100)).unwrap();
+        assert_eq!(dev.device_id, "dev1");
+    }
+
+    #[test]
+    fn discover_one_with_encrypted() {
+        let plain = MockReceiver::empty();
+        let encrypted = MockReceiver::new(vec![encrypted_packet("dev2", "10.0.0.2")]);
+        let dev = discover_one_with(&plain, &encrypted, Duration::from_millis(100)).unwrap();
+        assert_eq!(dev.device_id, "dev2");
+    }
+
+    #[test]
+    fn discover_one_with_timeout() {
+        let plain = MockReceiver::empty();
+        let encrypted = MockReceiver::empty();
+        let err = discover_one_with(&plain, &encrypted, Duration::from_millis(10)).unwrap_err();
+        assert!(matches!(err, DiscoveryError::Timeout));
+    }
+
+    #[test]
+    fn discover_one_with_returns_first() {
+        let plain = MockReceiver::new(vec![
+            plaintext_packet("first", "10.0.0.1"),
+            plaintext_packet("second", "10.0.0.2"),
+        ]);
+        let encrypted = MockReceiver::empty();
+        let dev = discover_one_with(&plain, &encrypted, Duration::from_millis(100)).unwrap();
+        assert_eq!(dev.device_id, "first");
+    }
+
+    #[test]
+    fn discover_one_with_skips_garbage() {
+        let plain = MockReceiver::new(vec![
+            b"garbage".to_vec(),
+            plaintext_packet("dev1", "10.0.0.1"),
+        ]);
+        let encrypted = MockReceiver::empty();
+        let dev = discover_one_with(&plain, &encrypted, Duration::from_millis(100)).unwrap();
+        assert_eq!(dev.device_id, "dev1");
     }
 }
