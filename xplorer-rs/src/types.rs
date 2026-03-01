@@ -887,6 +887,143 @@ mod tests {
         );
     }
 
+    // ── Display ─────────────────────────────────────────────
+
+    #[test]
+    fn mode_display() {
+        assert_eq!(format!("{}", Mode::Smart), "smart");
+        assert_eq!(format!("{}", Mode::ChargeGo), "chargego");
+    }
+
+    #[test]
+    fn status_display() {
+        assert_eq!(format!("{}", Status::Cleaning), "cleaning");
+        assert_eq!(format!("{}", Status::Paused), "paused");
+    }
+
+    #[test]
+    fn suction_display() {
+        assert_eq!(format!("{}", SuctionLevel::Max), "max");
+        assert_eq!(format!("{}", SuctionLevel::Gentle), "gentle");
+    }
+
+    #[test]
+    fn mop_display() {
+        assert_eq!(format!("{}", MopLevel::High), "high");
+        assert_eq!(format!("{}", MopLevel::Closed), "closed");
+    }
+
+    // ── MapBitmap ─────────────────────────────────────────
+
+    #[test]
+    fn map_bitmap_all_bits() {
+        // Each bit individually
+        assert!(MapBitmap(1 << 0).split());
+        assert!(MapBitmap(1 << 1).merger());
+        assert!(MapBitmap(1 << 2).map());
+        assert!(MapBitmap(1 << 3).cleaning());
+        assert!(MapBitmap(1 << 4).active_split());
+        assert!(MapBitmap(1 << 5).not_by_human());
+        assert!(MapBitmap(1 << 6).save_fail());
+        assert!(MapBitmap(1 << 7).split_success());
+        assert!(MapBitmap(1 << 8).merger_success());
+        assert!(MapBitmap(1 << 9).choice_not_found());
+        assert!(MapBitmap(1 << 10).count_error());
+        assert!(MapBitmap(1 << 11).choice_set_ok());
+
+        // Zero has no bits set
+        let empty = MapBitmap(0);
+        assert!(!empty.split());
+        assert!(!empty.merger());
+        assert!(!empty.map());
+        assert!(!empty.cleaning());
+        assert!(!empty.active_split());
+        assert!(!empty.not_by_human());
+        assert!(!empty.save_fail());
+        assert!(!empty.split_success());
+        assert!(!empty.merger_success());
+        assert!(!empty.choice_not_found());
+        assert!(!empty.count_error());
+        assert!(!empty.choice_set_ok());
+    }
+
+    // ── DpsEvent::parse — missing DPs ─────────────────────
+
+    #[test]
+    fn parse_dp2_start() {
+        assert_eq!(
+            DpsEvent::parse(2, &json!(true)).unwrap(),
+            DpsEvent::Start(true)
+        );
+    }
+
+    #[test]
+    fn parse_dp6_area() {
+        assert_eq!(
+            DpsEvent::parse(6, &json!(25)).unwrap(),
+            DpsEvent::Area(25)
+        );
+    }
+
+    #[test]
+    fn parse_dp7_time() {
+        assert_eq!(
+            DpsEvent::parse(7, &json!(30)).unwrap(),
+            DpsEvent::Time(30)
+        );
+    }
+
+    #[test]
+    fn parse_dp13_locate() {
+        assert_eq!(
+            DpsEvent::parse(13, &json!(true)).unwrap(),
+            DpsEvent::Locate(true)
+        );
+    }
+
+    #[test]
+    fn parse_dp25_dnd() {
+        assert_eq!(
+            DpsEvent::parse(25, &json!(false)).unwrap(),
+            DpsEvent::Dnd(false)
+        );
+    }
+
+    #[test]
+    fn parse_dp105_env_settings() {
+        assert_eq!(
+            DpsEvent::parse(105, &json!(true)).unwrap(),
+            DpsEvent::EnvSettings(true)
+        );
+    }
+
+    // ── DpsEvent::parse — error paths ─────────────────────
+
+    #[test]
+    fn parse_dp1_wrong_type() {
+        assert!(DpsEvent::parse(1, &json!("true")).is_err());
+    }
+
+    #[test]
+    fn parse_dp4_wrong_type() {
+        assert!(DpsEvent::parse(4, &json!(42)).is_err());
+    }
+
+    #[test]
+    fn parse_dp8_wrong_type() {
+        assert!(DpsEvent::parse(8, &json!("high")).is_err());
+    }
+
+    #[test]
+    fn parse_dp15_invalid_base64() {
+        assert!(DpsEvent::parse(15, &json!("!!!not-base64!!!")).is_err());
+    }
+
+    #[test]
+    fn parse_dp15_wrong_type() {
+        assert!(DpsEvent::parse(15, &json!(42)).is_err());
+    }
+
     // ── DeviceState::from_dps ──────────────────────────────
 
     #[test]
@@ -948,5 +1085,144 @@ mod tests {
         assert_eq!(state.battery, 0);
         assert_eq!(state.suction, SuctionLevel::Normal);
         assert_eq!(state.mop, MopLevel::Closed);
+    }
+
+    // ── Unknown enum variants ─────────────────────────────
+
+    #[test]
+    fn status_unknown_variant() {
+        assert!(Status::try_from("nonexistent").is_err());
+    }
+
+    #[test]
+    fn suction_unknown_variant() {
+        assert!(SuctionLevel::try_from("turbo").is_err());
+    }
+
+    #[test]
+    fn mop_unknown_variant() {
+        assert!(MopLevel::try_from("ultra").is_err());
+    }
+
+    // ── Type mismatch error paths ─────────────────────────
+
+    #[test]
+    fn parse_dp2_wrong_type() {
+        assert!(DpsEvent::parse(2, &json!("yes")).is_err());
+    }
+
+    #[test]
+    fn parse_dp5_wrong_type() {
+        assert!(DpsEvent::parse(5, &json!(42)).is_err());
+    }
+
+    #[test]
+    fn parse_dp9_wrong_type() {
+        assert!(DpsEvent::parse(9, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn parse_dp10_wrong_type() {
+        assert!(DpsEvent::parse(10, &json!(3)).is_err());
+    }
+
+    #[test]
+    fn parse_dp13_wrong_type() {
+        assert!(DpsEvent::parse(13, &json!("yes")).is_err());
+    }
+
+    #[test]
+    fn parse_dp6_wrong_type() {
+        assert!(DpsEvent::parse(6, &json!("big")).is_err());
+    }
+
+    #[test]
+    fn parse_dp7_wrong_type() {
+        assert!(DpsEvent::parse(7, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn parse_dp17_wrong_type() {
+        assert!(DpsEvent::parse(17, &json!("old")).is_err());
+    }
+
+    #[test]
+    fn parse_dp19_wrong_type() {
+        assert!(DpsEvent::parse(19, &json!(false)).is_err());
+    }
+
+    #[test]
+    fn parse_dp21_wrong_type() {
+        assert!(DpsEvent::parse(21, &json!("low")).is_err());
+    }
+
+    #[test]
+    fn parse_dp25_wrong_type() {
+        assert!(DpsEvent::parse(25, &json!(1)).is_err());
+    }
+
+    #[test]
+    fn parse_dp26_wrong_type() {
+        assert!(DpsEvent::parse(26, &json!("loud")).is_err());
+    }
+
+    #[test]
+    fn parse_dp28_wrong_type() {
+        assert!(DpsEvent::parse(28, &json!("none")).is_err());
+    }
+
+    #[test]
+    fn parse_dp29_wrong_type() {
+        assert!(DpsEvent::parse(29, &json!(false)).is_err());
+    }
+
+    #[test]
+    fn parse_dp30_wrong_type() {
+        assert!(DpsEvent::parse(30, &json!("many")).is_err());
+    }
+
+    #[test]
+    fn parse_dp31_wrong_type() {
+        assert!(DpsEvent::parse(31, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn parse_dp102_wrong_type() {
+        assert!(DpsEvent::parse(102, &json!("bitmap")).is_err());
+    }
+
+    #[test]
+    fn parse_dp105_wrong_type() {
+        assert!(DpsEvent::parse(105, &json!(1)).is_err());
+    }
+
+    // ── DeviceState::from_dps error paths ─────────────────
+
+    #[test]
+    fn device_state_from_dps_invalid_mode() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"4": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
+    }
+
+    #[test]
+    fn device_state_from_dps_invalid_status() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"5": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
+    }
+
+    #[test]
+    fn device_state_from_dps_invalid_suction() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"9": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
+    }
+
+    #[test]
+    fn device_state_from_dps_invalid_mop() {
+        let dps: HashMap<String, Value> =
+            serde_json::from_value(json!({"10": "nonexistent"})).unwrap();
+        assert!(DeviceState::from_dps(&dps).is_err());
     }
 }

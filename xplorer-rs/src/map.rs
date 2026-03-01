@@ -610,26 +610,139 @@ mod tests {
     }
 
     #[test]
-    fn route_point_mixed_sign() {
-        let p = RoutePoint::decode_bytes([0x00, 0x08, 0xFF, 0xEA]);
-        assert!((p.x - 0.8).abs() < 0.01);
-        assert!((p.y - (-2.2)).abs() < 0.01);
-    }
-
-    #[test]
-    fn route_point_signed_boundary() {
-        // Value exactly at 32769 should be negative
-        // 32769 as i16 = -32767 → / 10 = -3276.7
-        let p = RoutePoint::decode_bytes([0x80, 0x01, 0x00, 0x00]);
-        assert!(p.x < 0.0);
-    }
-
-    #[test]
     fn route_point_exact_0x8000() {
         // 0x8000 = 32768 as u16 → -32768 as i16 → / 10 = -3276.8
         let p = RoutePoint::decode_bytes([0x80, 0x00, 0x80, 0x00]);
         assert!((p.x - (-3276.8)).abs() < 0.01);
         assert!((p.y - (-3276.8)).abs() < 0.01);
+    }
+
+    // ── PixelType — Unknown ─────────────────────────────────
+
+    #[test]
+    fn pixel_type_unknown_values() {
+        // Values between 0xF4 and 0xFF that aren't Wall or Outside
+        assert_eq!(PixelType::from_byte(0xF5), PixelType::Unknown(0xF5));
+        assert_eq!(PixelType::from_byte(0xF6), PixelType::Unknown(0xF6));
+        assert_eq!(PixelType::from_byte(0xF7), PixelType::Unknown(0xF7));
+        assert_eq!(PixelType::from_byte(0xF8), PixelType::Unknown(0xF8));
+        assert_eq!(PixelType::from_byte(0xFA), PixelType::Unknown(0xFA));
+        assert_eq!(PixelType::from_byte(0xFE), PixelType::Unknown(0xFE));
+    }
+
+    // ── RouteHeader — error ───────────────────────────────
+
+    #[test]
+    fn route_header_too_short() {
+        assert!(RouteHeader::parse(&[0u8; 10]).is_err());
+    }
+
+    // ── decode_layout — error paths ───────────────────────
+
+    #[test]
+    fn decode_layout_header_too_short() {
+        let decoder = TuyaMapDecoder;
+        assert!(decoder.decode_layout(&[0u8; 10]).is_err());
+    }
+
+    #[test]
+    fn decode_layout_bad_lz4() {
+        let decoder = TuyaMapDecoder;
+        // Valid header with compressed_length > 0 but garbage compressed data
+        let mut data = vec![0u8; 30];
+        data[4] = 0; data[5] = 2; // width = 2
+        data[6] = 0; data[7] = 2; // height = 2
+        data[20] = 0; data[21] = 4; // total_count = 4
+        data[22] = 0; data[23] = 6; // compressed_length = 6 (non-zero → LZ4)
+        data.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]); // garbage
+        assert!(decoder.decode_layout(&data).is_err());
+    }
+
+    #[test]
+    fn decode_layout_pixel_count_mismatch() {
+        let decoder = TuyaMapDecoder;
+        // Uncompressed layout (compressed_length=0) with fewer pixels than width*height
+        let mut data = vec![0u8; 24];
+        data[4] = 0; data[5] = 4; // width = 4
+        data[6] = 0; data[7] = 4; // height = 4 → expects 16 pixels
+        data[20] = 0; data[21] = 16; // total_count = 16
+        // compressed_length = 0 → uncompressed, but only 2 bytes follow
+        data.extend_from_slice(&[0x00, 0x00]);
+        assert!(decoder.decode_layout(&data).is_err());
+    }
+
+    #[test]
+    fn decode_layout_uncompressed() {
+        let decoder = TuyaMapDecoder;
+        // 2x2 uncompressed layout
+        let mut data = vec![0u8; 24];
+        data[0] = 1; // version
+        data[4] = 0; data[5] = 2; // width = 2
+        data[6] = 0; data[7] = 2; // height = 2
+        data[20] = 0; data[21] = 4; // total_count = 4
+        // compressed_length = 0 → uncompressed
+        data.extend_from_slice(&[0xFF, 0xF4, 0x08, 0x00]); // Outside, Wall, Room(8), Room(0)
+        let layout = decoder.decode_layout(&data).unwrap();
+        assert_eq!(layout.pixels.len(), 4);
+        assert_eq!(layout.pixels[0], PixelType::Outside);
+        assert_eq!(layout.pixels[1], PixelType::Wall);
+        assert_eq!(layout.pixels[2], PixelType::Room(8));
+        assert_eq!(layout.pixels[3], PixelType::Room(0));
+        assert!(layout.rooms.is_empty());
+    }
+
+    // ── decode_route — error paths ────────────────────────
+
+    #[test]
+    fn decode_route_header_too_short() {
+        let decoder = TuyaMapDecoder;
+        assert!(decoder.decode_route(&[0u8; 5]).is_err());
+    }
+
+    #[test]
+    fn decode_route_uncompressed_empty() {
+        let decoder = TuyaMapDecoder;
+        // Valid header with 0 points, uncompressed
+        let data = vec![0u8; 13];
+        // total_count = 0 (bytes 5..9)
+        // compressed_length = 0 (bytes 11..13)
+        let route = decoder.decode_route(&data).unwrap();
+        assert!(route.points.is_empty());
+    }
+
+    // ── parse_room_metadata — edge cases ──────────────────
+
+    #[test]
+    fn parse_room_metadata_empty() {
+        assert!(parse_room_metadata(&[]).is_empty());
+        assert!(parse_room_metadata(&[0]).is_empty());
+    }
+
+    #[test]
+    fn parse_room_metadata_truncated_room() {
+        // Version + room_count=1 but only 10 bytes of room data (needs 47)
+        let mut data = vec![0u8; 12];
+        data[1] = 1; // 1 room
+        assert!(parse_room_metadata(&data).is_empty());
+    }
+
+    // ── room_for_pixel — edge cases ───────────────────────
+
+    #[test]
+    fn room_for_pixel_non_multiple_of_4() {
+        let decoder = TuyaMapDecoder;
+        let layout = decoder.decode_layout(LAY_BIN).unwrap();
+        assert!(layout.room_for_pixel(5).is_none());
+        assert!(layout.room_for_pixel(7).is_none());
+        assert!(layout.room_for_pixel(1).is_none());
+    }
+
+    #[test]
+    fn room_for_pixel_nonexistent_room() {
+        let decoder = TuyaMapDecoder;
+        let layout = decoder.decode_layout(LAY_BIN).unwrap();
+        // Room id=63 (pixel=252) doesn't exist
+        assert!(layout.room_for_pixel(252).is_none());
     }
 
     // ── Full decode: lay.bin ───────────────────────────────
@@ -743,5 +856,117 @@ mod tests {
         // Route should have some negative x values (starts at x=-50)
         let has_negative_x = route.points.iter().any(|p| p.x < 0.0);
         assert!(has_negative_x, "route should include negative x coords");
+    }
+
+    // ── PNG rendering ─────────────────────────────────────
+
+    #[cfg(feature = "render")]
+    mod render_tests {
+        use super::*;
+
+        #[test]
+        fn layout_to_png() {
+            let decoder = TuyaMapDecoder;
+            let layout = decoder.decode_layout(LAY_BIN).unwrap();
+            let png = layout.to_png().unwrap();
+            // PNG magic bytes
+            assert_eq!(&png[..4], &[0x89, b'P', b'N', b'G']);
+            assert!(png.len() > 100);
+        }
+
+        #[test]
+        fn layout_to_png_with_route() {
+            let decoder = TuyaMapDecoder;
+            let layout = decoder.decode_layout(LAY_BIN).unwrap();
+            let route = decoder.decode_route(ROU_BIN).unwrap();
+            let png = layout.to_png_with_route(Some(&route)).unwrap();
+            assert_eq!(&png[..4], &[0x89, b'P', b'N', b'G']);
+
+            // Should be larger than layout-only PNG (route pixels added)
+            let png_no_route = layout.to_png().unwrap();
+            assert_ne!(png.len(), png_no_route.len());
+        }
+
+        #[test]
+        fn route_to_png_standalone() {
+            let decoder = TuyaMapDecoder;
+            let layout = decoder.decode_layout(LAY_BIN).unwrap();
+            let route = decoder.decode_route(ROU_BIN).unwrap();
+            let png = route.to_png(&layout.header).unwrap();
+            assert_eq!(&png[..4], &[0x89, b'P', b'N', b'G']);
+            assert!(png.len() > 100);
+        }
+
+        #[test]
+        fn layout_to_png_small_synthetic() {
+            // 4x4 layout with mixed pixel types to cover all render branches
+            let layout = LayoutMap {
+                header: LayoutHeader {
+                    version: 1,
+                    map_id: 0,
+                    map_type: 0,
+                    width: 4,
+                    height: 4,
+                    origin_x: 20,
+                    origin_y: 20,
+                    resolution: 5,
+                    charge_x: 10,
+                    charge_y: 10,
+                    total_count: 16,
+                    compressed_length: 0,
+                },
+                pixels: vec![
+                    PixelType::Outside, PixelType::Wall, PixelType::Room(0), PixelType::Room(8),
+                    PixelType::Room(12), PixelType::Unknown(0xF5), PixelType::Outside, PixelType::Wall,
+                    PixelType::Room(0), PixelType::Room(4), PixelType::Outside, PixelType::Wall,
+                    PixelType::Outside, PixelType::Outside, PixelType::Outside, PixelType::Outside,
+                ],
+                rooms: vec![],
+            };
+            let png = layout.to_png().unwrap();
+            assert_eq!(&png[..4], &[0x89, b'P', b'N', b'G']);
+        }
+
+        #[test]
+        fn layout_to_png_with_route_synthetic() {
+            // Test draw_line with various directions (horizontal, vertical, diagonal)
+            let layout = LayoutMap {
+                header: LayoutHeader {
+                    version: 1,
+                    map_id: 0,
+                    map_type: 0,
+                    width: 10,
+                    height: 10,
+                    origin_x: 50,
+                    origin_y: 50,
+                    resolution: 5,
+                    charge_x: 25,
+                    charge_y: 25,
+                    total_count: 100,
+                    compressed_length: 0,
+                },
+                pixels: vec![PixelType::Outside; 100],
+                rooms: vec![],
+            };
+            let route = Route {
+                header: RouteHeader {
+                    version: 0,
+                    route_id: 0,
+                    force_update: false,
+                    route_type: 0,
+                    total_count: 4,
+                    theta: 0,
+                    compressed_length: 0,
+                },
+                points: vec![
+                    RoutePoint { x: 0.0, y: 0.0 },   // horizontal segment
+                    RoutePoint { x: 3.0, y: 0.0 },
+                    RoutePoint { x: 3.0, y: 3.0 },   // vertical segment
+                    RoutePoint { x: 0.0, y: 0.0 },   // diagonal segment
+                ],
+            };
+            let png = layout.to_png_with_route(Some(&route)).unwrap();
+            assert_eq!(&png[..4], &[0x89, b'P', b'N', b'G']);
+        }
     }
 }

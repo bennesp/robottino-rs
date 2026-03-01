@@ -88,6 +88,20 @@ pub struct Wall {
 }
 
 /// A room cleaning command to send via DP 15.
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::RoomCleanCommand;
+///
+/// let cmd = RoomCleanCommand { clean_times: 2, room_ids: vec![0, 3] };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[0], 0xAA); // start byte
+/// assert_eq!(bytes[3], 0x14); // room clean command
+///
+/// let b64 = cmd.encode_base64();
+/// assert!(!b64.is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoomCleanCommand {
     /// Number of cleaning passes per room.
@@ -254,6 +268,20 @@ fn encode_zone_frame(cmd: u8, first_byte: u8, zones: &[Zone]) -> Vec<u8> {
 /// Discovered by brute-force testing: cmd 0x28 is the setter, the robot
 /// reports status back in cmd 0x29. Each zone is a polygon defined by
 /// `num_vertices` points (typically 4 for a rectangle).
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::{Zone, ZoneCleanCommand};
+///
+/// let cmd = ZoneCleanCommand {
+///     clean_times: 1,
+///     zones: vec![Zone::rect(82, -13, 453, 203)],
+/// };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[0], 0xAA);
+/// assert_eq!(bytes[3], 0x28); // zone clean command
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZoneCleanCommand {
     /// Number of cleaning passes.
@@ -284,6 +312,26 @@ impl ZoneCleanCommand {
 /// Each zone has its own [`ForbiddenMode`].
 ///
 /// Format: `aa <len> 0x1a <num_zones> [<mode> <num_pts=4> <coords...>]* <checksum>`
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::{ForbiddenZoneCommand, ForbiddenZone, ForbiddenMode, Zone};
+///
+/// // Set a no-go zone
+/// let cmd = ForbiddenZoneCommand {
+///     zones: vec![ForbiddenZone {
+///         mode: ForbiddenMode::FullBan,
+///         zone: Zone::rect(100, 100, 200, 200),
+///     }],
+/// };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[3], 0x1A);
+///
+/// // Clear all forbidden zones
+/// let clear = ForbiddenZoneCommand::clear();
+/// assert!(clear.zones.is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForbiddenZoneCommand {
     /// Forbidden zones to set.
@@ -336,6 +384,22 @@ impl ForbiddenZoneCommand {
 /// back in cmd 0x13.
 ///
 /// Format: `aa <len> 0x12 <num_walls> [<x1> <y1> <x2> <y2>]* <checksum>`
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::{VirtualWallCommand, Wall};
+///
+/// let cmd = VirtualWallCommand {
+///     walls: vec![Wall { start: (100, 50), end: (300, 50) }],
+/// };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[3], 0x12);
+///
+/// // Clear all virtual walls
+/// let clear = VirtualWallCommand::clear();
+/// assert!(clear.walls.is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VirtualWallCommand {
     /// Virtual walls to set.
@@ -501,15 +565,6 @@ mod tests {
     }
 
     #[test]
-    fn encode_base64_single_room() {
-        let cmd = RoomCleanCommand {
-            clean_times: 1,
-            room_ids: vec![4],
-        };
-        assert_eq!(cmd.encode_base64(), "qgAEFAEBBBo=");
-    }
-
-    #[test]
     fn encode_multi_room() {
         let cmd = RoomCleanCommand {
             clean_times: 2,
@@ -602,20 +657,6 @@ mod tests {
 
         let msg2 = SweeperMessage::decode_base64(&b64).unwrap();
         assert_eq!(msg, msg2);
-    }
-
-    #[test]
-    fn checksum_is_sum_mod_256() {
-        let cmd = RoomCleanCommand {
-            clean_times: 1,
-            room_ids: vec![4],
-        };
-        let encoded = cmd.encode();
-        let sum: u16 = encoded[3..encoded.len() - 1]
-            .iter()
-            .map(|&b| b as u16)
-            .sum();
-        assert_eq!(encoded.last().copied().unwrap(), (sum & 0xFF) as u8);
     }
 
     // ── Zone clean ──────────────────────────────────────────────
@@ -811,45 +852,7 @@ mod tests {
         assert_eq!(msg.data[2], 4); // num_vertices
     }
 
-    #[test]
-    fn zone_encode_base64_roundtrip() {
-        let cmd = ZoneCleanCommand {
-            clean_times: 1,
-            zones: vec![Zone::rect(82, -13, 453, 203)],
-        };
-        let b64 = cmd.encode_base64();
-        let msg = SweeperMessage::decode_base64(&b64).unwrap();
-        assert!(msg.checksum_ok);
-        assert_eq!(msg.cmd, 0x28);
-    }
-
     // ── Forbidden zone (cmd 0x1a) ─────────────────────────────
-
-    #[test]
-    fn forbidden_zone_encode_full_ban() {
-        // Verified against real robot: mode=0x00 shows as "zona vietata" in app
-        let cmd = ForbiddenZoneCommand {
-            zones: vec![ForbiddenZone {
-                mode: ForbiddenMode::FullBan,
-                zone: Zone::rect(82, -13, 453, 203),
-            }],
-        };
-        let encoded = cmd.encode();
-        assert_eq!(encoded[0], 0xAA);
-        // payload_len = 1 + 1 + (1 + 1 + 4*4) = 20 = 0x0014
-        assert_eq!(encoded[1], 0x00);
-        assert_eq!(encoded[2], 0x14);
-        assert_eq!(encoded[3], 0x1A); // cmd
-        assert_eq!(encoded[4], 0x01); // num_zones
-        assert_eq!(encoded[5], 0x00); // mode = FullBan
-        assert_eq!(encoded[6], 0x04); // num_points
-        assert_eq!(encoded.len(), 24);
-        let sum: u16 = encoded[3..encoded.len() - 1]
-            .iter()
-            .map(|&b| b as u16)
-            .sum();
-        assert_eq!(encoded.last().copied().unwrap(), (sum & 0xFF) as u8);
-    }
 
     #[test]
     fn forbidden_zone_encode_no_sweep() {

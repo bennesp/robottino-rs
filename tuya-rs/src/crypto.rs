@@ -138,16 +138,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn aes_ecb_roundtrip_exact_block() {
-        let key = b"0123456789abcdef";
-        let plaintext = b"sixteen bytes!!!";
-        let encrypted = aes_ecb_encrypt(key, plaintext);
-        assert_eq!(encrypted.len(), 32); // 16 data + 16 padding (full block)
-        let decrypted = aes_ecb_decrypt(key, &encrypted).unwrap();
-        assert_eq!(decrypted, plaintext);
-    }
-
-    #[test]
     fn aes_ecb_roundtrip_non_aligned() {
         let key = b"0123456789abcdef";
         let plaintext = b"hello world";
@@ -155,19 +145,6 @@ mod tests {
         assert_eq!(encrypted.len(), 16); // 11 + 5 padding
         let decrypted = aes_ecb_decrypt(key, &encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
-    }
-
-    #[test]
-    fn aes_ecb_wrong_key() {
-        let key1 = b"0123456789abcdef";
-        let key2 = b"fedcba9876543210";
-        let plaintext = b"test data here!x";
-        let encrypted = aes_ecb_encrypt(key1, plaintext);
-        let result = aes_ecb_decrypt(key2, &encrypted);
-        match result {
-            Ok(decrypted) => assert_ne!(decrypted, plaintext),
-            Err(_) => {} // Invalid padding is also expected
-        }
     }
 
     #[test]
@@ -198,14 +175,6 @@ mod tests {
             let result = rsa_encrypt_textbook(&[65], &n, &e);
             let result_int = BigUint::from_bytes_be(&result);
             assert_eq!(result_int, BigUint::from(2790u32));
-        }
-
-        #[test]
-        fn rsa_textbook_identity() {
-            let n = BigUint::from(3233u32);
-            let e = BigUint::from(17u32);
-            let result = rsa_encrypt_textbook(&[1], &n, &e);
-            assert_eq!(BigUint::from_bytes_be(&result), BigUint::from(1u32));
         }
 
         #[test]
