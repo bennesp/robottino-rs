@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![deny(unsafe_code)]
 
 //! # xplorer-rs
 //!
@@ -90,3 +91,4 @@ pub mod types;
 pub use device::xplorer_oem_credentials;
 pub use device::{Device, XPlorer};
 pub use tuya_rs;
+pub use tuya_rs::connection::Transport;

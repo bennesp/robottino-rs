@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![deny(unsafe_code)]
 
 //! # tuya-rs
 //!
@@ -10,7 +11,7 @@
 //! ## Quick start
 //!
 //! ```no_run
-//! use tuya_rs::connection::{DeviceConfig, TuyaConnection, TuyaCommand, build_dps_json, now};
+//! use tuya_rs::connection::{DeviceConfig, TuyaConnection, TuyaCommand, Transport, build_dps_json, now};
 //! use serde_json::json;
 //!
 //! // Connect to a device

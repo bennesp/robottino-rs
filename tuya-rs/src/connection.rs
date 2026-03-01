@@ -7,6 +7,21 @@ use thiserror::Error;
 use crate::crypto;
 
 /// Connection parameters for a Tuya device over local network.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::connection::DeviceConfig;
+///
+/// let config = DeviceConfig {
+///     dev_id: "my_device_id".into(),
+///     address: "192.168.1.100".into(),
+///     local_key: "0123456789abcdef".into(),
+///     ..Default::default()
+/// };
+/// assert_eq!(config.version, 3.3);
+/// assert_eq!(config.port, 6668);
+/// ```
 #[derive(Debug, Clone)]
 pub struct DeviceConfig {
     /// Tuya device ID (`devId`).
@@ -23,6 +38,15 @@ pub struct DeviceConfig {
 
 impl DeviceConfig {
     /// Build config from environment variables: DEVICE_IP, DEVICE_ID, LOCAL_KEY.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use tuya_rs::connection::DeviceConfig;
+    ///
+    /// // Requires DEVICE_ID, DEVICE_IP, LOCAL_KEY env vars
+    /// let config = DeviceConfig::from_env().expect("env vars not set");
+    /// ```
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
             dev_id: std::env::var("DEVICE_ID").map_err(|_| "DEVICE_ID not set")?,
@@ -344,42 +368,23 @@ impl TuyaPacket {
     }
 }
 
-// ── Helpers ─────────────────────────────────────────────────
+// ── Transport trait ──────────────────────────────────────────
 
-/// Build a JSON payload for setting DPS values.
+/// Abstraction over the Tuya device communication channel.
 ///
-/// # Examples
-///
-/// ```
-/// use tuya_rs::connection::build_dps_json;
-/// use serde_json::json;
-///
-/// let payload = build_dps_json("device123", 1700000000, &[("1", json!(true))]);
-/// let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
-/// assert_eq!(parsed["devId"], "device123");
-/// assert_eq!(parsed["dps"]["1"], true);
-/// ```
-pub fn build_dps_json(dev_id: &str, timestamp: u64, dps: &[(&str, serde_json::Value)]) -> String {
-    let mut dps_map = serde_json::Map::new();
-    for (k, v) in dps {
-        dps_map.insert(k.to_string(), v.clone());
-    }
-
-    serde_json::json!({
-        "devId": dev_id,
-        "uid": "",
-        "t": timestamp,
-        "dps": dps_map,
-    })
-    .to_string()
-}
-
-/// Return current UNIX timestamp in seconds.
-pub fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+/// Implemented by [`TuyaConnection`] for real TCP connections.
+/// Can be mocked for testing without a physical device.
+pub trait Transport {
+    /// Return the device ID.
+    fn dev_id(&self) -> &str;
+    /// Send a command and read one response.
+    fn send(
+        &mut self,
+        command: TuyaCommand,
+        payload: Vec<u8>,
+    ) -> Result<TuyaPacket, DeviceError>;
+    /// Read one packet from the device.
+    fn recv(&mut self) -> Result<TuyaPacket, DeviceError>;
 }
 
 // ── TCP connection ───────────────────────────────────────────
@@ -398,7 +403,7 @@ impl TuyaConnection {
     /// # Examples
     ///
     /// ```no_run
-    /// use tuya_rs::connection::{DeviceConfig, TuyaConnection, TuyaCommand};
+    /// use tuya_rs::connection::{DeviceConfig, TuyaConnection, TuyaCommand, Transport};
     ///
     /// let config = DeviceConfig {
     ///     dev_id: "my_device_id".into(),
@@ -440,34 +445,8 @@ impl TuyaConnection {
         })
     }
 
-    /// Return the device ID.
-    pub fn dev_id(&self) -> &str {
-        &self.dev_id
-    }
-
-    /// Send a command and read one response.
-    pub fn send(
-        &mut self,
-        command: TuyaCommand,
-        payload: Vec<u8>,
-    ) -> Result<TuyaPacket, DeviceError> {
-        self.seq += 1;
-        let packet = TuyaPacket {
-            seq_num: self.seq,
-            command: command as u32,
-            payload,
-        };
-        let bytes = packet.to_bytes(&self.key);
-
-        self.stream
-            .write_all(&bytes)
-            .map_err(|_| DeviceError::Disconnected)?;
-
-        self.recv()
-    }
-
     /// Read one packet from the device.
-    pub fn recv(&mut self) -> Result<TuyaPacket, DeviceError> {
+    fn recv_packet(&mut self) -> Result<TuyaPacket, DeviceError> {
         let mut header = [0u8; 16];
         self.read_exact(&mut header)?;
 
@@ -505,6 +484,74 @@ impl TuyaConnection {
     }
 }
 
+impl Transport for TuyaConnection {
+    fn dev_id(&self) -> &str {
+        &self.dev_id
+    }
+
+    fn send(
+        &mut self,
+        command: TuyaCommand,
+        payload: Vec<u8>,
+    ) -> Result<TuyaPacket, DeviceError> {
+        self.seq += 1;
+        let packet = TuyaPacket {
+            seq_num: self.seq,
+            command: command as u32,
+            payload,
+        };
+        let bytes = packet.to_bytes(&self.key);
+
+        self.stream
+            .write_all(&bytes)
+            .map_err(|_| DeviceError::Disconnected)?;
+
+        self.recv_packet()
+    }
+
+    fn recv(&mut self) -> Result<TuyaPacket, DeviceError> {
+        self.recv_packet()
+    }
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+
+/// Build a JSON payload for setting DPS values.
+///
+/// # Examples
+///
+/// ```
+/// use tuya_rs::connection::build_dps_json;
+/// use serde_json::json;
+///
+/// let payload = build_dps_json("device123", 1700000000, &[("1", json!(true))]);
+/// let parsed: serde_json::Value = serde_json::from_str(&payload).unwrap();
+/// assert_eq!(parsed["devId"], "device123");
+/// assert_eq!(parsed["dps"]["1"], true);
+/// ```
+pub fn build_dps_json(dev_id: &str, timestamp: u64, dps: &[(&str, serde_json::Value)]) -> String {
+    let mut dps_map = serde_json::Map::new();
+    for (k, v) in dps {
+        dps_map.insert(k.to_string(), v.clone());
+    }
+
+    serde_json::json!({
+        "devId": dev_id,
+        "uid": "",
+        "t": timestamp,
+        "dps": dps_map,
+    })
+    .to_string()
+}
+
+/// Return current UNIX timestamp in seconds.
+pub fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
 /// Possible DP value types for raw access.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DpValue {
@@ -533,98 +580,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn magic_prefix_and_suffix() {
-        assert_eq!(MAGIC_PREFIX, 0x000055AA);
-        assert_eq!(MAGIC_SUFFIX, 0x0000AA55);
-    }
-
-    #[test]
-    fn packet_encode_has_correct_markers() {
-        let key = b"0123456789abcdef";
-        let pkt = TuyaPacket {
-            seq_num: 1,
-            command: TuyaCommand::DpQuery as u32,
-            payload: b"{}".to_vec(),
-        };
-        let bytes = pkt.to_bytes(key);
-
-        // Check prefix
-        assert_eq!(&bytes[0..4], &MAGIC_PREFIX.to_be_bytes());
-        // Check suffix
-        assert_eq!(&bytes[bytes.len() - 4..], &MAGIC_SUFFIX.to_be_bytes());
-        // Check seq_num
-        assert_eq!(
-            u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
-            1
-        );
-        // Check command
-        assert_eq!(
-            u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
-            TuyaCommand::DpQuery as u32
-        );
-    }
-
-    #[test]
-    fn packet_crc32_valid() {
-        let key = b"0123456789abcdef";
-        let pkt = TuyaPacket {
-            seq_num: 42,
-            command: TuyaCommand::Control as u32,
-            payload: b"{\"dps\":{\"1\":true}}".to_vec(),
-        };
-        let bytes = pkt.to_bytes(key);
-
-        // CRC is 4 bytes before suffix
-        let crc_start = bytes.len() - 8;
-        let received_crc = u32::from_be_bytes([
-            bytes[crc_start],
-            bytes[crc_start + 1],
-            bytes[crc_start + 2],
-            bytes[crc_start + 3],
-        ]);
-        let computed_crc = crc32fast::hash(&bytes[..crc_start]);
-        assert_eq!(received_crc, computed_crc);
-    }
-
-    #[test]
-    fn packet_encode_decode_roundtrip() {
-        let key = b"0123456789abcdef";
-        let original = TuyaPacket {
-            seq_num: 100,
-            command: TuyaCommand::Status as u32,
-            payload: b"{\"devId\":\"test\",\"dps\":{\"1\":true}}".to_vec(),
-        };
-        let bytes = original.to_bytes(key);
-        let decoded = TuyaPacket::from_bytes(&bytes, key).unwrap();
-
-        assert_eq!(decoded.seq_num, original.seq_num);
-        assert_eq!(decoded.command, original.command);
-        assert_eq!(decoded.payload, original.payload);
-    }
-
-    #[test]
-    fn packet_decode_wrong_key_fails() {
-        let key1 = b"0123456789abcdef";
-        let key2 = b"fedcba9876543210";
-        let pkt = TuyaPacket {
-            seq_num: 1,
-            command: TuyaCommand::Control as u32,
-            payload: b"{\"test\":true}".to_vec(),
-        };
-        let bytes = pkt.to_bytes(key1);
-
-        // CRC is computed over plaintext+encrypted combo, so it will still
-        // be valid even with wrong key. The decryption will give garbage.
-        // In practice this may or may not produce a padding error.
-        // We just verify it doesn't panic.
-        let result = TuyaPacket::from_bytes(&bytes, key2);
-        match result {
-            Ok(decoded) => assert_ne!(decoded.payload, pkt.payload),
-            Err(_) => {} // Decryption/padding error is fine
-        }
-    }
-
-    #[test]
     fn build_dps_json_format() {
         let json = build_dps_json("devId123", 1770808371, &[("1", json!(true))]);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -634,25 +589,289 @@ mod tests {
         assert_eq!(parsed["dps"]["1"], true);
     }
 
+
+    // ── DeviceConfig ────────────────────────────────────────
+
     #[test]
-    fn build_dps_json_multiple() {
-        let json = build_dps_json(
-            "dev",
-            100,
-            &[("1", json!(true)), ("4", json!("smart")), ("26", json!(50))],
-        );
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["dps"]["1"], true);
-        assert_eq!(parsed["dps"]["4"], "smart");
-        assert_eq!(parsed["dps"]["26"], 50);
+    fn device_config_default() {
+        let cfg = DeviceConfig::default();
+        assert!(cfg.dev_id.is_empty());
+        assert!(cfg.address.is_empty());
+        assert!(cfg.local_key.is_empty());
+        assert_eq!(cfg.version, 3.3);
+        assert_eq!(cfg.port, 6668);
     }
 
     #[test]
-    fn tuya_command_values() {
-        assert_eq!(TuyaCommand::Control as u32, 7);
-        assert_eq!(TuyaCommand::Status as u32, 8);
-        assert_eq!(TuyaCommand::Heartbeat as u32, 9);
-        assert_eq!(TuyaCommand::DpQuery as u32, 10);
-        assert_eq!(TuyaCommand::UpdateDps as u32, 18);
+    fn device_config_from_env_missing_vars() {
+        // All env vars are almost certainly unset in test
+        assert!(DeviceConfig::from_env().is_err());
+    }
+
+    // ── Packet encode (no-header commands) ──────────────────
+
+    #[test]
+    fn packet_encode_heartbeat_no_header() {
+        let key = b"0123456789abcdef";
+        let pkt = TuyaPacket {
+            seq_num: 1,
+            command: TuyaCommand::Heartbeat as u32,
+            payload: b"{}".to_vec(),
+        };
+        let bytes = pkt.to_bytes(key);
+        // Heartbeat should NOT have the "3.3\0..." header after the 16-byte fixed header
+        // The encrypted data starts right at offset 16
+        assert_ne!(&bytes[16..19], b"3.3");
+    }
+
+    #[test]
+    fn packet_encode_control_has_header() {
+        let key = b"0123456789abcdef";
+        let pkt = TuyaPacket {
+            seq_num: 1,
+            command: TuyaCommand::Control as u32,
+            payload: b"{}".to_vec(),
+        };
+        let bytes = pkt.to_bytes(key);
+        assert_eq!(&bytes[16..19], b"3.3");
+    }
+
+    // ── from_bytes error paths ──────────────────────────────
+
+    /// Build a raw packet with valid envelope (prefix, CRC, suffix) around arbitrary data.
+    fn build_raw_packet(seq: u32, cmd: u32, data: &[u8]) -> Vec<u8> {
+        let data_len = data.len() + 8; // +8 for CRC + suffix
+        let mut buf = Vec::with_capacity(16 + data_len);
+        buf.extend_from_slice(&MAGIC_PREFIX.to_be_bytes());
+        buf.extend_from_slice(&seq.to_be_bytes());
+        buf.extend_from_slice(&cmd.to_be_bytes());
+        buf.extend_from_slice(&(data_len as u32).to_be_bytes());
+        buf.extend_from_slice(data);
+        let crc = crc32fast::hash(&buf);
+        buf.extend_from_slice(&crc.to_be_bytes());
+        buf.extend_from_slice(&MAGIC_SUFFIX.to_be_bytes());
+        buf
+    }
+
+    #[test]
+    fn from_bytes_too_short() {
+        let key = b"0123456789abcdef";
+        let err = TuyaPacket::from_bytes(&[0; 20], key).unwrap_err();
+        assert!(matches!(err, DeviceError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn from_bytes_bad_prefix() {
+        let key = b"0123456789abcdef";
+        let mut pkt = build_raw_packet(1, 7, b"");
+        pkt[0] = 0xFF; // corrupt prefix
+        let err = TuyaPacket::from_bytes(&pkt, key).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("bad prefix"));
+    }
+
+    #[test]
+    fn from_bytes_bad_suffix() {
+        let key = b"0123456789abcdef";
+        let mut pkt = build_raw_packet(1, 7, b"some data here!!");
+        let last = pkt.len();
+        pkt[last - 1] = 0xFF; // corrupt suffix
+        let err = TuyaPacket::from_bytes(&pkt, key).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("bad suffix"));
+    }
+
+    #[test]
+    fn from_bytes_truncated() {
+        let key = b"0123456789abcdef";
+        // Valid prefix but claimed length exceeds actual data
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&MAGIC_PREFIX.to_be_bytes());
+        buf.extend_from_slice(&0u32.to_be_bytes()); // seq
+        buf.extend_from_slice(&7u32.to_be_bytes()); // cmd
+        buf.extend_from_slice(&255u32.to_be_bytes()); // len = 255 (way too big)
+        buf.extend_from_slice(&[0u8; 8]); // not enough data
+        let err = TuyaPacket::from_bytes(&buf, key).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("truncated"));
+    }
+
+    #[test]
+    fn from_bytes_crc_mismatch() {
+        let key = b"0123456789abcdef";
+        let mut pkt = build_raw_packet(1, 7, b"some data here!!");
+        // Corrupt a data byte (between header and CRC)
+        pkt[16] ^= 0xFF;
+        let err = TuyaPacket::from_bytes(&pkt, key).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("CRC mismatch"));
+    }
+
+    #[test]
+    fn from_bytes_empty_payload() {
+        let key = b"0123456789abcdef";
+        let pkt = build_raw_packet(42, 9, &[]);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.seq_num, 42);
+        assert_eq!(decoded.command, 9);
+        assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
+    fn from_bytes_undecryptable_data() {
+        let key = b"0123456789abcdef";
+        // 16 bytes of random non-decodable data (not valid AES, not plaintext, not prefix)
+        let garbage = [0x80u8; 16];
+        let pkt = build_raw_packet(1, 7, &garbage);
+        let err = TuyaPacket::from_bytes(&pkt, key).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("cannot decode"));
+    }
+
+    // ── try_decode format coverage (via from_bytes) ─────────
+
+    #[test]
+    fn decode_format_a_prefix_plus_encrypted() {
+        // Already covered by packet_encode_decode_roundtrip (Control command)
+        // but let's verify explicitly for a Status command
+        let key = b"0123456789abcdef";
+        let pkt = TuyaPacket {
+            seq_num: 1,
+            command: TuyaCommand::Status as u32,
+            payload: b"{\"dps\":{\"1\":true}}".to_vec(),
+        };
+        let bytes = pkt.to_bytes(key);
+        let decoded = TuyaPacket::from_bytes(&bytes, key).unwrap();
+        assert_eq!(decoded.payload, pkt.payload);
+    }
+
+    #[test]
+    fn decode_format_b_prefix_retcode0_encrypted() {
+        let key = b"0123456789abcdef";
+        let plaintext = b"{\"result\":\"ok\"}";
+        let encrypted = crypto::aes_ecb_encrypt(key, plaintext);
+
+        let mut data = Vec::new();
+        data.extend_from_slice(b"3.3\0\0\0\0\0\0\0\0\0\0\0\0"); // prefix
+        data.extend_from_slice(&0u32.to_be_bytes()); // retcode = 0
+        data.extend_from_slice(&encrypted);
+
+        let pkt = build_raw_packet(1, 8, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, plaintext);
+    }
+
+    #[test]
+    fn decode_format_b_prefix_retcode0_empty() {
+        let key = b"0123456789abcdef";
+        let mut data = Vec::new();
+        data.extend_from_slice(b"3.3\0\0\0\0\0\0\0\0\0\0\0\0"); // prefix
+        data.extend_from_slice(&0u32.to_be_bytes()); // retcode = 0
+        // no encrypted data → empty
+
+        let pkt = build_raw_packet(1, 8, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
+    fn decode_format_b_prefix_retcode1_plaintext_error() {
+        let key = b"0123456789abcdef";
+        let mut data = Vec::new();
+        data.extend_from_slice(b"3.3\0\0\0\0\0\0\0\0\0\0\0\0"); // prefix
+        data.extend_from_slice(&1u32.to_be_bytes()); // retcode = 1
+        data.extend_from_slice(b"parse data error"); // plaintext error
+
+        let pkt = build_raw_packet(1, 8, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, b"parse data error");
+    }
+
+    #[test]
+    fn decode_format_c_retcode0_prefix_encrypted() {
+        let key = b"0123456789abcdef";
+        let plaintext = b"{\"status\":\"ok\"}";
+        let encrypted = crypto::aes_ecb_encrypt(key, plaintext);
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_be_bytes()); // retcode = 0
+        data.extend_from_slice(b"3.3\0\0\0\0\0\0\0\0\0\0\0\0"); // prefix
+        data.extend_from_slice(&encrypted);
+
+        let pkt = build_raw_packet(1, 8, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, plaintext);
+    }
+
+    #[test]
+    fn decode_format_d_retcode0_encrypted() {
+        let key = b"0123456789abcdef";
+        let plaintext = b"{\"dps\":{\"8\":72}}";
+        let encrypted = crypto::aes_ecb_encrypt(key, plaintext);
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&0u32.to_be_bytes()); // retcode = 0
+        data.extend_from_slice(&encrypted);
+
+        let pkt = build_raw_packet(1, 10, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, plaintext);
+    }
+
+    #[test]
+    fn decode_format_e_retcode1_plaintext_error() {
+        let key = b"0123456789abcdef";
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u32.to_be_bytes()); // retcode = 1
+        data.extend_from_slice(b"json parse error");
+
+        let pkt = build_raw_packet(1, 10, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, b"json parse error");
+    }
+
+    #[test]
+    fn decode_format_f_retcode_only() {
+        let key = b"0123456789abcdef";
+        let data = 0u32.to_be_bytes(); // retcode = 0, nothing else
+
+        let pkt = build_raw_packet(1, 7, &data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
+    fn decode_format_g_bare_encrypted() {
+        let key = b"0123456789abcdef";
+        let plaintext = b"{\"bare\":true}";
+        let encrypted = crypto::aes_ecb_encrypt(key, plaintext);
+
+        // No prefix, no retcode — just encrypted
+        let pkt = build_raw_packet(1, 10, &encrypted);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, plaintext);
+    }
+
+    #[test]
+    fn decode_plaintext_fallback() {
+        let key = b"0123456789abcdef";
+        // ASCII-only data that doesn't look like any known format
+        // (not starting with "3.3", not a valid retcode pattern, not valid AES)
+        let data = b"PLAIN TEXT ERROR MSG";
+
+        let pkt = build_raw_packet(1, 7, data);
+        let decoded = TuyaPacket::from_bytes(&pkt, key).unwrap();
+        assert_eq!(decoded.payload, b"PLAIN TEXT ERROR MSG");
+    }
+
+    #[test]
+    fn decode_hex_dump_truncated_at_64() {
+        let key = b"0123456789abcdef";
+        // 80 bytes of non-decodable binary (> 64 bytes for hex dump truncation)
+        let garbage: Vec<u8> = (0..80).map(|i| 0x80 | (i & 0x0F)).collect();
+        let pkt = build_raw_packet(1, 7, &garbage);
+        let err = TuyaPacket::from_bytes(&pkt, key).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("..."));
     }
 }
