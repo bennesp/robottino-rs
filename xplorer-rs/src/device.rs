@@ -4,8 +4,8 @@ use base64::Engine;
 use serde_json::json;
 
 use tuya_rs::connection::{
-    build_dps_json, now, DeviceConfig, DeviceError, DpValue, DpsUpdate, Transport, TuyaCommand,
-    TuyaConnection, TuyaPacket,
+    DeviceConfig, DeviceError, DpValue, DpsUpdate, Transport, TuyaCommand, TuyaConnection,
+    TuyaPacket, build_dps_json, now,
 };
 
 use crate::protocol::{
@@ -816,7 +816,12 @@ mod tests {
     #[test]
     fn set_value_no_followup_returns_none() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        assert!(robot.set_value(1, DpValue::Boolean(true)).unwrap().is_none());
+        assert!(
+            robot
+                .set_value(1, DpValue::Boolean(true))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -826,7 +831,11 @@ mod tests {
             .set_value(15, DpValue::Raw(vec![0xAA, 0x00, 0x01, 0x15, 0x15]))
             .unwrap();
         let dp15 = sent_dps(&robot)["dps"]["15"].as_str().unwrap().to_owned();
-        assert!(base64::engine::general_purpose::STANDARD.decode(&dp15).is_ok());
+        assert!(
+            base64::engine::general_purpose::STANDARD
+                .decode(&dp15)
+                .is_ok()
+        );
     }
 
     #[test]

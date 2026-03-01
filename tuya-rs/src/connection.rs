@@ -378,11 +378,7 @@ pub trait Transport {
     /// Return the device ID.
     fn dev_id(&self) -> &str;
     /// Send a command and read one response.
-    fn send(
-        &mut self,
-        command: TuyaCommand,
-        payload: Vec<u8>,
-    ) -> Result<TuyaPacket, DeviceError>;
+    fn send(&mut self, command: TuyaCommand, payload: Vec<u8>) -> Result<TuyaPacket, DeviceError>;
     /// Read one packet from the device.
     fn recv(&mut self) -> Result<TuyaPacket, DeviceError>;
 }
@@ -489,11 +485,7 @@ impl Transport for TuyaConnection {
         &self.dev_id
     }
 
-    fn send(
-        &mut self,
-        command: TuyaCommand,
-        payload: Vec<u8>,
-    ) -> Result<TuyaPacket, DeviceError> {
+    fn send(&mut self, command: TuyaCommand, payload: Vec<u8>) -> Result<TuyaPacket, DeviceError> {
         self.seq += 1;
         let packet = TuyaPacket {
             seq_num: self.seq,
@@ -588,7 +580,6 @@ mod tests {
         assert_eq!(parsed["t"], 1770808371u64);
         assert_eq!(parsed["dps"]["1"], true);
     }
-
 
     // ── DeviceConfig ────────────────────────────────────────
 

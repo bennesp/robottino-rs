@@ -650,10 +650,14 @@ mod tests {
         let decoder = TuyaMapDecoder;
         // Valid header with compressed_length > 0 but garbage compressed data
         let mut data = vec![0u8; 30];
-        data[4] = 0; data[5] = 2; // width = 2
-        data[6] = 0; data[7] = 2; // height = 2
-        data[20] = 0; data[21] = 4; // total_count = 4
-        data[22] = 0; data[23] = 6; // compressed_length = 6 (non-zero → LZ4)
+        data[4] = 0;
+        data[5] = 2; // width = 2
+        data[6] = 0;
+        data[7] = 2; // height = 2
+        data[20] = 0;
+        data[21] = 4; // total_count = 4
+        data[22] = 0;
+        data[23] = 6; // compressed_length = 6 (non-zero → LZ4)
         data.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]); // garbage
         assert!(decoder.decode_layout(&data).is_err());
     }
@@ -663,9 +667,12 @@ mod tests {
         let decoder = TuyaMapDecoder;
         // Uncompressed layout (compressed_length=0) with fewer pixels than width*height
         let mut data = vec![0u8; 24];
-        data[4] = 0; data[5] = 4; // width = 4
-        data[6] = 0; data[7] = 4; // height = 4 → expects 16 pixels
-        data[20] = 0; data[21] = 16; // total_count = 16
+        data[4] = 0;
+        data[5] = 4; // width = 4
+        data[6] = 0;
+        data[7] = 4; // height = 4 → expects 16 pixels
+        data[20] = 0;
+        data[21] = 16; // total_count = 16
         // compressed_length = 0 → uncompressed, but only 2 bytes follow
         data.extend_from_slice(&[0x00, 0x00]);
         assert!(decoder.decode_layout(&data).is_err());
@@ -677,9 +684,12 @@ mod tests {
         // 2x2 uncompressed layout
         let mut data = vec![0u8; 24];
         data[0] = 1; // version
-        data[4] = 0; data[5] = 2; // width = 2
-        data[6] = 0; data[7] = 2; // height = 2
-        data[20] = 0; data[21] = 4; // total_count = 4
+        data[4] = 0;
+        data[5] = 2; // width = 2
+        data[6] = 0;
+        data[7] = 2; // height = 2
+        data[20] = 0;
+        data[21] = 4; // total_count = 4
         // compressed_length = 0 → uncompressed
         data.extend_from_slice(&[0xFF, 0xF4, 0x08, 0x00]); // Outside, Wall, Room(8), Room(0)
         let layout = decoder.decode_layout(&data).unwrap();
@@ -916,10 +926,22 @@ mod tests {
                     compressed_length: 0,
                 },
                 pixels: vec![
-                    PixelType::Outside, PixelType::Wall, PixelType::Room(0), PixelType::Room(8),
-                    PixelType::Room(12), PixelType::Unknown(0xF5), PixelType::Outside, PixelType::Wall,
-                    PixelType::Room(0), PixelType::Room(4), PixelType::Outside, PixelType::Wall,
-                    PixelType::Outside, PixelType::Outside, PixelType::Outside, PixelType::Outside,
+                    PixelType::Outside,
+                    PixelType::Wall,
+                    PixelType::Room(0),
+                    PixelType::Room(8),
+                    PixelType::Room(12),
+                    PixelType::Unknown(0xF5),
+                    PixelType::Outside,
+                    PixelType::Wall,
+                    PixelType::Room(0),
+                    PixelType::Room(4),
+                    PixelType::Outside,
+                    PixelType::Wall,
+                    PixelType::Outside,
+                    PixelType::Outside,
+                    PixelType::Outside,
+                    PixelType::Outside,
                 ],
                 rooms: vec![],
             };
@@ -959,10 +981,10 @@ mod tests {
                     compressed_length: 0,
                 },
                 points: vec![
-                    RoutePoint { x: 0.0, y: 0.0 },   // horizontal segment
+                    RoutePoint { x: 0.0, y: 0.0 }, // horizontal segment
                     RoutePoint { x: 3.0, y: 0.0 },
-                    RoutePoint { x: 3.0, y: 3.0 },   // vertical segment
-                    RoutePoint { x: 0.0, y: 0.0 },   // diagonal segment
+                    RoutePoint { x: 3.0, y: 3.0 }, // vertical segment
+                    RoutePoint { x: 0.0, y: 0.0 }, // diagonal segment
                 ],
             };
             let png = layout.to_png_with_route(Some(&route)).unwrap();

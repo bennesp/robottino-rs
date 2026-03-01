@@ -959,18 +959,12 @@ mod tests {
 
     #[test]
     fn parse_dp6_area() {
-        assert_eq!(
-            DpsEvent::parse(6, &json!(25)).unwrap(),
-            DpsEvent::Area(25)
-        );
+        assert_eq!(DpsEvent::parse(6, &json!(25)).unwrap(), DpsEvent::Area(25));
     }
 
     #[test]
     fn parse_dp7_time() {
-        assert_eq!(
-            DpsEvent::parse(7, &json!(30)).unwrap(),
-            DpsEvent::Time(30)
-        );
+        assert_eq!(DpsEvent::parse(7, &json!(30)).unwrap(), DpsEvent::Time(30));
     }
 
     #[test]

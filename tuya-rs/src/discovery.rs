@@ -415,7 +415,6 @@ mod tests {
         assert!(!dev.encrypt);
     }
 
-
     // ── discover_with tests ───────────────────────────────
 
     #[test]

@@ -766,7 +766,6 @@ mod tests {
         );
     }
 
-
     #[cfg(feature = "cloud")]
     #[test]
     fn tuya_oem_api_new_defaults() {
@@ -776,7 +775,6 @@ mod tests {
         assert_eq!(api.endpoint, "https://a1.tuyaeu.com/api.json");
         assert_eq!(api.credentials.client_id, creds.client_id);
     }
-
 
     // ── MockHttpClient + async tests (cloud feature) ──────
 
@@ -825,19 +823,28 @@ mod tests {
         #[test]
         fn check_api_error_session_invalid() {
             let body = r#"{"errorCode":"USER_SESSION_INVALID","errorMsg":"session expired"}"#;
-            assert!(matches!(check_api_error(body), Err(ApiError::SessionInvalid)));
+            assert!(matches!(
+                check_api_error(body),
+                Err(ApiError::SessionInvalid)
+            ));
         }
 
         #[test]
         fn check_api_error_password_wrong() {
             let body = r#"{"errorCode":"USER_PASSWD_WRONG","errorMsg":"bad password"}"#;
-            assert!(matches!(check_api_error(body), Err(ApiError::PasswordWrong)));
+            assert!(matches!(
+                check_api_error(body),
+                Err(ApiError::PasswordWrong)
+            ));
         }
 
         #[test]
         fn check_api_error_illegal_access() {
             let body = r#"{"errorCode":"ILLEGAL_ACCESS_API","errorMsg":"denied"}"#;
-            assert!(matches!(check_api_error(body), Err(ApiError::IllegalAccessApi)));
+            assert!(matches!(
+                check_api_error(body),
+                Err(ApiError::IllegalAccessApi)
+            ));
         }
 
         #[test]
@@ -980,12 +987,14 @@ mod tests {
 
         #[tokio::test]
         async fn storage_config_success() {
-            let api = mock_api(vec![r#"{"result":{
+            let api = mock_api(vec![
+                r#"{"result":{
                 "ak":"AK1","sk":"SK1","token":"TOK1",
                 "bucket":"my-bucket","region":"eu-west-1",
                 "expiration":"2026-01-01",
                 "pathConfig":{"common":"/maps/dev1/"}
-            }}"#]);
+            }}"#,
+            ]);
             let creds = api.storage_config("dev1").await.unwrap();
             assert_eq!(creds.ak, "AK1");
             assert_eq!(creds.sk, "SK1");
