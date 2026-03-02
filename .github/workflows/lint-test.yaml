@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
@@ -63,11 +62,17 @@ jobs:
         run: |
           cargo llvm-cov report --summary-only --output-path coverage.json --json
           cargo llvm-cov report --html --output-dir coverage-html
-      - name: 📎 Upload coverage report
+      - name: 📎 Upload coverage HTML
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage-html/
+      - name: 📎 Upload coverage JSON
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-json
+          path: coverage.json
       - name: 📝 Coverage summary
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -83,8 +88,24 @@ jobs:
           ' coverage.json >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📎 [HTML report](${RUN_URL}#artifacts) — scroll to the *Artifacts* section at the bottom of the page" >> $GITHUB_STEP_SUMMARY
-      - name: 💬 PR comment
-        if: github.event_name == 'pull_request'
+      - name: 📖 Doc
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  pr-comment:
+    name: 💬 PR Coverage Comment
+    if: github.event_name == 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: 📥 Download coverage JSON
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-json
+      - name: 💬 Post or update comment
         uses: actions/github-script@v7
         with:
           script: |
@@ -125,8 +146,3 @@ jobs:
                 body,
               });
             }
-
-      - name: 📖 Doc
-        run: cargo doc --no-deps --all-features
-        env:
-          RUSTDOCFLAGS: "-D warnings"
