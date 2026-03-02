@@ -17,9 +17,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lint-test:
-    name: 🔍 Lint & Test
-    uses: ./.github/workflows/lint-test.yaml
+  checks:
+    name: 🔍 Checks
+    uses: ./.github/workflows/checks.yaml
 
   parse:
     name: 🏷️ Parse tag
@@ -45,7 +45,7 @@ jobs:
 
   release:
     name: 🚀 Release
-    needs: [lint-test, parse]
+    needs: [checks, parse]
     runs-on: ubuntu-latest
     permissions:
       contents: write
