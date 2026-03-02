@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/tuya-rs.svg)](https://crates.io/crates/tuya-rs)
 [![docs.rs](https://docs.rs/tuya-rs/badge.svg)](https://docs.rs/tuya-rs)
-[![Lint & Test](https://github.com/bennesp/robottino-rs/actions/workflows/lint-test.yaml/badge.svg)](https://github.com/bennesp/robottino-rs/actions/workflows/lint-test.yaml)
+[![CI](https://github.com/bennesp/robottino-rs/actions/workflows/checks.yaml/badge.svg)](https://github.com/bennesp/robottino-rs/actions/workflows/checks.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Tuya v3.3 local protocol implementation in Rust.
