@@ -2,7 +2,6 @@
 
 [![Crates.io](https://img.shields.io/crates/v/xplorer-rs.svg)](https://crates.io/crates/xplorer-rs)
 [![docs.rs](https://docs.rs/xplorer-rs/badge.svg)](https://docs.rs/xplorer-rs)
-[![CI](https://github.com/bennesp/robottino-rs/actions/workflows/checks.yaml/badge.svg)](https://github.com/bennesp/robottino-rs/actions/workflows/checks.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Local control library for **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners, built on top of [`tuya-rs`](../tuya-rs/) for Tuya v3.3 protocol communication.
