@@ -16,7 +16,8 @@
     {
       "description": "Major updates: separate PRs, no automerge",
       "matchUpdateTypes": ["major"],
-      "automerge": false
+      "automerge": false,
+      "addLabels": ["major"]
     }
   ]
 }
