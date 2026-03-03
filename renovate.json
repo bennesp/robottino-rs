@@ -8,14 +8,15 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
-      "description": "Group all non-major updates into a single PR",
+      "description": "Group all non-breaking updates into a single PR",
       "matchUpdateTypes": ["minor", "patch", "digest"],
-      "groupName": "all non-major",
+      "matchJsonata": ["isBreaking != true"],
+      "groupName": "all non-breaking",
       "automerge": true
     },
     {
-      "description": "Major updates: separate PRs, no automerge",
-      "matchUpdateTypes": ["major"],
+      "description": "Breaking updates: separate PRs, no automerge",
+      "matchJsonata": ["isBreaking == true"],
       "automerge": false,
       "addLabels": ["major"]
     }

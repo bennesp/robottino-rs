@@ -306,7 +306,12 @@ impl TuyaPacket {
 
             // Format B: prefix(15) + retcode(4) + encrypted/plaintext
             if after_prefix.len() >= 4 {
-                let retcode = u32::from_be_bytes(after_prefix[..4].try_into().unwrap());
+                let retcode = u32::from_be_bytes([
+                    after_prefix[0],
+                    after_prefix[1],
+                    after_prefix[2],
+                    after_prefix[3],
+                ]);
                 let after_rc = &after_prefix[4..];
                 if retcode == 1 {
                     return Some(after_rc.to_vec()); // plaintext error
@@ -324,7 +329,7 @@ impl TuyaPacket {
 
         // Check for retcode at position 0
         if raw.len() >= 4 {
-            let retcode = u32::from_be_bytes(raw[..4].try_into().unwrap());
+            let retcode = u32::from_be_bytes([raw[0], raw[1], raw[2], raw[3]]);
 
             if retcode <= 1 {
                 let after_rc = &raw[4..];
@@ -540,7 +545,7 @@ pub fn build_dps_json(dev_id: &str, timestamp: u64, dps: &[(&str, serde_json::Va
 pub fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("system clock is before UNIX epoch")
         .as_secs()
 }
 
