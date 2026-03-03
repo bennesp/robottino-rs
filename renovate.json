@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Rome",
+  "schedule": ["before 3pm on friday"],
+  "prConcurrentLimit": 10,
+  "dependencyDashboard": false,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Group all non-major updates into a single PR",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "all non-major",
+      "automerge": true
+    },
+    {
+      "description": "Major updates: separate PRs, no automerge",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}
