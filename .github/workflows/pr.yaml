@@ -23,7 +23,7 @@ jobs:
       pull-requests: write
     steps:
       - name: 📥 Download coverage JSON
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: coverage-json
       - name: 💬 Post or update comment
