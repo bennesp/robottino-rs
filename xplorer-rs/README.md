@@ -4,75 +4,117 @@
 [![docs.rs](https://docs.rs/xplorer-rs/badge.svg)](https://docs.rs/xplorer-rs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Local control library for **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners, built on top of [`tuya-rs`](../tuya-rs/) for Tuya v3.3 protocol communication.
+Control library for **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners, built on top of [`tuya-rs`](../tuya-rs/) for Tuya v3.3 protocol communication.
+
+Two implementations of the `Device` trait are available:
+
+- **`LocalXPlorer`** — local TCP control via the Tuya v3.3 protocol (default)
+- **`CloudXPlorer`** — cloud control via the Tuya OEM Mobile API (`cloud` feature)
 
 Reverse-engineered from the official Android APK (Ghidra + packet sniffing).
 
 Part of the [robottino-rs](https://github.com/bennesp/robottino-rs) workspace.
-
-## Usage
-
-```rust
-use tuya_rs::connection::DeviceConfig;
-use xplorer_rs::device::{Device, XPlorer};
-use xplorer_rs::protocol::RoomCleanCommand;
-
-let config = DeviceConfig::from_env()?;
-let mut vacuum = XPlorer::connect(&config)?;
-
-// Query device state
-let state = vacuum.status()?;
-println!("Battery: {}%, Status: {}", state.battery, state.status);
-
-// Clean specific rooms
-let cmd = RoomCleanCommand { clean_times: 1, room_ids: vec![0, 2] };
-vacuum.clean_rooms(&cmd)?;
-```
 
 ## Features
 
 | Flag | Description |
 |------|-------------|
 | *(default)* | Local TCP control, map decoding (LZ4-compressed layout + route) |
-| `cloud` | Cloud API access: login, device discovery, map download via AWS STS |
+| `cloud` | Cloud API access: login, device discovery, map download via AWS STS. Adds `CloudXPlorer` for remote device control |
 | `render` | PNG rendering of layout maps and cleaning routes |
 
 ## Modules
 
-- **`device`** — `Device` trait and `XPlorer` struct: power, clean rooms/zones, forbidden zones, virtual walls
+- **`device`** — `Device` trait and `LocalXPlorer` struct: power, clean rooms/zones, forbidden zones, virtual walls
+- **`cloud_device`** *(cloud)* — `CloudXPlorer`: same `Device` trait, commands sent via Tuya cloud HTTP API
 - **`protocol`** — DP 15 binary protocol: sweeper message codec, room/zone clean, forbidden zones, virtual walls
 - **`types`** — Device state model: DPS event parsing, enums for Mode, Status, SuctionLevel, MopLevel
 - **`map`** — Map file decoder: layout (LZ4 pixel grid + room metadata) and route (cleaning path), optional PNG rendering
 
-## Examples
+---
 
-```bash
-cargo run --example discover                               # find devices on the network
-cargo run --example robot_status                           # full device dashboard
-cargo run --example clean_rooms -- 0 2                     # clean rooms 0 and 2
-cargo run --example clean_zone                             # clean a rectangular zone
-cargo run --example forbidden_zone                         # set no-go zones
-cargo run --example go_home                                # return to charger
-cargo run --example locate_robot                           # trigger "find me" beep
-cargo run --example download_map --features cloud,render   # download + render map
+## Local control
+
+Direct TCP communication with the vacuum on your local network.
+
+Requires `DEVICE_IP`, `DEVICE_ID`, and `LOCAL_KEY` environment variables.
+
+### Usage
+
+```rust
+use xplorer_rs::{DeviceConfig, LocalXPlorer, Device};
+use xplorer_rs::protocol::RoomCleanCommand;
+
+let config = DeviceConfig::from_env()?;
+let mut vacuum = LocalXPlorer::connect(&config)?;
+
+// Query device state
+let state = vacuum.status().await?;
+println!("Battery: {}%, Status: {}", state.battery, state.status);
+
+// Clean specific rooms
+let cmd = RoomCleanCommand { clean_times: 1, room_ids: vec![0, 2] };
+vacuum.clean_rooms(&cmd).await?;
 ```
 
-The `discover` example requires no credentials. All others need `DEVICE_IP`, `DEVICE_ID`, and `LOCAL_KEY` environment variables. The `download_map` example additionally requires OEM cloud credentials (`TUYA_*`) — see the [workspace README](../README.md#cloud-credentials) for details.
+### Examples
 
-## Tuya OEM credentials for X-Plorer
+```bash
+cargo run --example local_discover                 # find devices via UDP broadcast
+cargo run --example local_control -- status        # device dashboard
+cargo run --example local_control -- clean_rooms 0 2
+cargo run --example clean_zone -- --x1 82 --y1 -13 --x2 453 --y2 203
+cargo run --example forbidden_zone -- zone --x1 82 --y1 -13 --x2 453 --y2 203
+```
 
-The `cloud` feature requires OEM credentials extracted from the official Android APK. These are the values for the **Rowenta X-Plorer Serie 75 S / Serie 95 S** app (`com.groupeseb.ext.xplorer`):
+| Example | Description |
+|---------|-------------|
+| `local_discover` | Find Tuya devices on the local network via UDP broadcast |
+| `local_control` | Status, power on/off, go home, locate, clean rooms |
+| `clean_zone` | Clean a rectangular zone (cmd 0x28) |
+| `forbidden_zone` | Set no-go zones, no-sweep zones, virtual walls |
 
-| Variable | Value |
-|----------|-------|
-| `TUYA_CLIENT_ID` | `staxmyjjd8thqxypvr5v` |
-| `TUYA_APP_SECRET` | `q39ksm4c5yps9atn9repakn4gxpja3vh` |
-| `TUYA_BMP_KEY` | `4rkkvamwnhedxecyexd9t5cxkchxtqff` |
-| `TUYA_CERT_HASH` | `1B:D3:2E:D5:5E:D7:47:E3:81:A1:AF:EC:66:FA:AC:7B:E4:C8:A6:B2:DD:1F:1A:17:48:5E:1E:D1:1E:37:DB:92` |
-| `TUYA_PACKAGE_NAME` | `com.groupeseb.ext.xplorer` |
-| `TUYA_APP_DEVICE_ID` | Any 44-char lowercase hex string (e.g. `openssl rand -hex 22`) |
+---
 
-These are static and identical for every installation of the app. See the [workspace README](../README.md#cloud-credentials) for the full API flow and how each credential is extracted.
+## Cloud control
+
+Remote control via the Tuya OEM Mobile API. Requires `--features cloud`.
+
+Requires `TUYA_EMAIL`, `TUYA_PASSWORD` (and `TUYA_DEV_ID` for device control).
+
+### Usage
+
+```rust
+use xplorer_rs::{CloudXPlorer, Device, xplorer_oem_credentials};
+
+let oem_creds = xplorer_oem_credentials("your_app_device_id_here");
+let mut robot = CloudXPlorer::login(oem_creds, "you@email.com", "password", "your_device_id").await?;
+let state = robot.status().await?;
+println!("Battery: {}%, Status: {}", state.battery, state.status);
+```
+
+### Examples
+
+```bash
+cargo run --example cloud_discover --features cloud            # list devices + local keys
+cargo run --example cloud_control --features cloud -- status   # device dashboard
+cargo run --example cloud_control --features cloud -- clean_rooms 0 2
+cargo run --example download_map --features cloud,render       # download + render map
+```
+
+| Example | Description |
+|---------|-------------|
+| `cloud_discover` | List all devices with local keys, names, product IDs |
+| `cloud_control` | Status, power on/off, go home, locate, clean rooms |
+| `download_map` | Download map from AWS S3 and render as PNG (requires `render`) |
+
+### OEM credentials
+
+The `cloud` feature requires OEM credentials extracted from the official Android APK. These are already embedded in `xplorer_oem_credentials()` for the X-Plorer app (`com.groupeseb.ext.xplorer`).
+
+See the [workspace README](../README.md#oem-credentials-for-reference) for the full list and extraction methods.
+
+---
 
 ## How it works
 

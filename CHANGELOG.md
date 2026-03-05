@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-05
+
+### Changed
+
+#### xplorer-rs
+- **BREAKING**: `XPlorer` renamed to `LocalXPlorer` to clarify it is the local TCP implementation
+- **BREAKING**: `Device` trait methods are now `async fn` (Rust 2024 native async traits)
+- **BREAKING**: `DeviceListener` trait methods are now `async fn`
+- `build_sweeper_frame()` extracted as public helper in `protocol` module
+
+### Added
+
+#### tuya-rs
+- `publish_dps()` and `device_info()` methods on `TuyaApi` trait for cloud device control
+- `CloudDeviceInfo` struct for cloud device state
+
+#### xplorer-rs
+- `CloudXPlorer` — cloud-based `Device` implementation via Tuya OEM Mobile API (`cloud` feature)
+- `CloudXPlorer::login()` convenience constructor (no need to create `TuyaOemApi` manually)
+- `CloudXPlorer::storage_config()` for downloading map files
+- `cloud_discover()` standalone function for device enumeration
+- Re-exported `DeviceConfig`, `DeviceError`, `DpValue`, `DpsUpdate`, `Transport`, `discovery` from `tuya-rs` — no direct `tuya-rs` imports needed
+- Re-exported `Home`, `DeviceInfo`, `StorageCredentials`, `generate_presigned_url` under `cloud` feature
+- `local_control` example: unified local TCP CLI (status, power, go home, locate, clean rooms)
+- `cloud_control` example: unified cloud CLI (status, power, go home, locate, clean rooms)
+- `cloud_discover` example: list all devices with local keys via cloud API
+
+### Removed
+
+#### xplorer-rs
+- Separate examples `robot_status`, `clean_rooms`, `go_home`, `locate_robot` — merged into `local_control`
+- `discover` example renamed to `local_discover`
+
 ## [0.1.0] - 2026-03-01
 
 ### Added
@@ -27,4 +60,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cloud` feature: pre-filled OEM credentials for the X-Plorer app
 - 8 runnable examples: discover, robot_status, clean_rooms, clean_zone, forbidden_zone, go_home, locate_robot, download_map
 
+[0.2.0]: https://github.com/bennesp/robottino-rs/releases/tag/v0.2.0
 [0.1.0]: https://github.com/bennesp/robottino-rs/releases/tag/v0.1.0
