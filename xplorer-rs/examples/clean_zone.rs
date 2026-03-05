@@ -3,8 +3,8 @@
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example clean_zone -- --x1 82 --y1 -13 --x2 453 --y2 203
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example clean_zone -- --x1 82 --y1 -13 --x2 453 --y2 203 --times 2
 
-use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 use xplorer_rs::protocol::{Zone, ZoneCleanCommand};
+use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 
 fn parse_arg(args: &[String], flag: &str) -> Option<i16> {
     args.iter()

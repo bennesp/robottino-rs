@@ -13,8 +13,8 @@
 //! Clear everything:
 //!   cargo run --example forbidden_zone -- clear-all
 
-use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 use xplorer_rs::protocol::{ForbiddenMode, ForbiddenZone, Wall, Zone};
+use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 
 fn parse_arg<T: std::str::FromStr>(args: &[String], flag: &str) -> Option<T> {
     args.iter()

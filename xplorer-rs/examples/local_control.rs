@@ -4,8 +4,8 @@
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- power_on
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- clean_rooms 0 2
 
-use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 use xplorer_rs::protocol::RoomCleanCommand;
+use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 
 const USAGE: &str = "\
 Usage: local_control <command> [args...]

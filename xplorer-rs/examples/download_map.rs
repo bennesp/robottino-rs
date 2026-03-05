@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use xplorer_rs::map::{LayoutMap, MapDecoder, PixelType, Route, TuyaMapDecoder};
-use xplorer_rs::{generate_presigned_url, xplorer_oem_credentials, CloudXPlorer};
+use xplorer_rs::{CloudXPlorer, generate_presigned_url, xplorer_oem_credentials};
 
 static EMBEDDED_LAY: &[u8] = include_bytes!("../testdata/lay.bin");
 static EMBEDDED_ROU: &[u8] = include_bytes!("../testdata/rou.bin");
@@ -64,10 +64,7 @@ async fn live_flow(email: &str, password: &str) {
 
     // Step 2: Get storage credentials
     print!("2. Getting storage config... ");
-    let storage = robot
-        .storage_config()
-        .await
-        .expect("storage config failed");
+    let storage = robot.storage_config().await.expect("storage config failed");
     println!(
         "OK (bucket={}, expires={})",
         storage.bucket, storage.expiration

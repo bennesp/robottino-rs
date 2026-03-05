@@ -5,7 +5,7 @@
 //!   TUYA_EMAIL=... TUYA_PASSWORD=... TUYA_DEV_ID=... cargo run --example cloud_control --features cloud -- clean_rooms 0 2
 
 use xplorer_rs::protocol::RoomCleanCommand;
-use xplorer_rs::{xplorer_oem_credentials, CloudXPlorer, Device};
+use xplorer_rs::{CloudXPlorer, Device, xplorer_oem_credentials};
 
 const USAGE: &str = "\
 Usage: cloud_control <command> [args...]
@@ -43,13 +43,12 @@ async fn main() {
     // Login
     let oem_creds = xplorer_oem_credentials("cd43f3353956c29131a9327dad5c84c2a93ebacaf16e");
     print!("Logging in as {email}... ");
-    let mut robot =
-        CloudXPlorer::login(oem_creds, &email, &password, &dev_id)
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("FAILED: {e}");
-                std::process::exit(1);
-            });
+    let mut robot = CloudXPlorer::login(oem_creds, &email, &password, &dev_id)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("FAILED: {e}");
+            std::process::exit(1);
+        });
     println!("OK");
 
     match command {

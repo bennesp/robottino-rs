@@ -118,10 +118,8 @@ pub use tuya_rs::connection::{DeviceConfig, DeviceError, DpValue, DpsUpdate, Tra
 pub use tuya_rs::discovery;
 
 #[cfg(feature = "cloud")]
-pub use cloud_device::{cloud_discover, CloudXPlorer};
+pub use cloud_device::{CloudXPlorer, cloud_discover};
 #[cfg(feature = "cloud")]
 pub use device::xplorer_oem_credentials;
 #[cfg(feature = "cloud")]
-pub use tuya_rs::api::{
-    generate_presigned_url, DeviceInfo, Home, StorageCredentials,
-};
+pub use tuya_rs::api::{DeviceInfo, Home, StorageCredentials, generate_presigned_url};
