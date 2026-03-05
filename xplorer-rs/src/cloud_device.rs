@@ -423,4 +423,170 @@ mod tests {
         let resp = robot.clean_rooms(&cmd).await.unwrap();
         assert!(resp.is_none());
     }
+
+    #[tokio::test]
+    async fn pause_publishes_dp2_false() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.pause().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn resume_publishes_dp2_true() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.resume().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_mode_publishes_dp4() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.set_mode(Mode::Smart).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn clean_zone_publishes_dp15() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let cmd = ZoneCleanCommand {
+            clean_times: 1,
+            zones: vec![crate::protocol::Zone::rect(0, 0, 100, 100)],
+        };
+        robot.clean_zone(&cmd).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_forbidden_zones_publishes_dp15() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let zone = ForbiddenZone {
+            mode: crate::protocol::ForbiddenMode::FullBan,
+            zone: crate::protocol::Zone::rect(0, 0, 100, 100),
+        };
+        robot.set_forbidden_zones(&[zone]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn clear_forbidden_zones_publishes_empty() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.clear_forbidden_zones().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_virtual_walls_publishes_dp15() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let wall = Wall {
+            start: (0, 0),
+            end: (100, 100),
+        };
+        robot.set_virtual_walls(&[wall]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn clear_virtual_walls_publishes_empty() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.clear_virtual_walls().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn query_room_status_returns_none() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let resp = robot.query_room_status().await.unwrap();
+        assert!(resp.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_mop_publishes_dp10() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.set_mop(MopLevel::Middle).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_volume_publishes_dp26() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.set_volume(50).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_dnd_publishes_dp25() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot.set_dnd(true).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_value_publishes_arbitrary_dp() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let resp = robot
+            .set_value(99, tuya_rs::connection::DpValue::Boolean(true))
+            .await
+            .unwrap();
+        assert!(resp.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_value_string_publishes() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot
+            .set_value(4, tuya_rs::connection::DpValue::String("smart".into()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_value_integer_publishes() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot
+            .set_value(8, tuya_rs::connection::DpValue::Integer(72))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_value_raw_publishes_base64() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        robot
+            .set_value(15, tuya_rs::connection::DpValue::Raw(vec![0xAA, 0x00]))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn send_raw_command_returns_none() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let resp = robot.send_raw_command(0x15, &[0x01]).await.unwrap();
+        assert!(resp.is_none());
+    }
+
+    #[tokio::test]
+    async fn device_info_success() {
+        let robot = mock_cloud(vec![
+            r#"{"result":{"devId":"dev1","name":"Robot","isOnline":true,"dps":{"1":true}}}"#,
+        ]);
+        let info = robot.device_info().await.unwrap();
+        assert_eq!(info.dev_id, "dev1");
+        assert_eq!(info.name, "Robot");
+        assert!(info.is_online);
+    }
+
+    #[tokio::test]
+    async fn device_info_error_propagates() {
+        let robot = mock_cloud(vec![
+            r#"{"errorCode":"USER_SESSION_INVALID","errorMsg":"expired"}"#,
+        ]);
+        assert!(robot.device_info().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn storage_config_success() {
+        let robot = mock_cloud(vec![
+            r#"{"result":{"bucket":"test-bucket","region":"eu-west-1","accessKeyId":"ak","secretKey":"sk","sessionToken":"tok","objectKeyPrefix":"prefix","expiration":3600}}"#,
+        ]);
+        let config = robot.storage_config().await.unwrap();
+        assert_eq!(config.bucket, "test-bucket");
+        assert_eq!(config.region, "eu-west-1");
+    }
+
+    #[tokio::test]
+    async fn storage_config_error_propagates() {
+        let robot = mock_cloud(vec![
+            r#"{"errorCode":"ILLEGAL_ACCESS","errorMsg":"denied"}"#,
+        ]);
+        assert!(robot.storage_config().await.is_err());
+    }
 }
