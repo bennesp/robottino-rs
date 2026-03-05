@@ -1,9 +1,9 @@
 //! Discover Tuya devices on the local network via UDP broadcast.
 //!
-//!   cargo run --example discover
+//!   cargo run --example local_discover
 
 use std::time::Duration;
-use tuya_rs::discovery;
+use xplorer_rs::discovery;
 
 fn main() {
     let timeout = Duration::from_secs(10);

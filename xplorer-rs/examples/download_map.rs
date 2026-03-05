@@ -7,9 +7,8 @@
 //!   TUYA_EMAIL=you@mail.com TUYA_PASSWORD=pass cargo run --example download_map --features cloud
 
 use std::collections::HashMap;
-use tuya_rs::api::{TuyaApi, TuyaOemApi, generate_presigned_url};
 use xplorer_rs::map::{LayoutMap, MapDecoder, PixelType, Route, TuyaMapDecoder};
-use xplorer_rs::xplorer_oem_credentials;
+use xplorer_rs::{CloudXPlorer, generate_presigned_url, xplorer_oem_credentials};
 
 static EMBEDDED_LAY: &[u8] = include_bytes!("../testdata/lay.bin");
 static EMBEDDED_ROU: &[u8] = include_bytes!("../testdata/rou.bin");
@@ -53,21 +52,19 @@ async fn live_flow(email: &str, password: &str) {
     };
     // For demo purposes, the device id here is hardcoded.
     // In a real implementation, you would generate one once and reuse it for all API calls.
-    let creds = xplorer_oem_credentials("cd43f3353956c29131a9327dad5c84c2a93ebacaf16e");
+    let oem_creds = xplorer_oem_credentials("cd43f3353956c29131a9327dad5c84c2a93ebacaf16e");
     let dev_id = env("TUYA_DEV_ID");
 
     // Step 1: Login
-    let mut api = TuyaOemApi::new(creds);
     print!("1. Logging in as {email}... ");
-    let _session = api.login(email, password).await.expect("login failed");
+    let robot = CloudXPlorer::login(oem_creds, email, password, &dev_id)
+        .await
+        .expect("login failed");
     println!("OK");
 
     // Step 2: Get storage credentials
     print!("2. Getting storage config... ");
-    let storage = api
-        .storage_config(&dev_id)
-        .await
-        .expect("storage config failed");
+    let storage = robot.storage_config().await.expect("storage config failed");
     println!(
         "OK (bucket={}, expires={})",
         storage.bucket, storage.expiration
@@ -242,18 +239,19 @@ fn chrono_now() -> String {
     let mut y = 1970u64;
     let mut remaining = days;
     loop {
-        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
-            366
-        } else {
-            365
-        };
+        let days_in_year =
+            if y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400)) {
+                366
+            } else {
+                365
+            };
         if remaining < days_in_year {
             break;
         }
         remaining -= days_in_year;
         y += 1;
     }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
     let month_days = [
         31,
         if leap { 29 } else { 28 },

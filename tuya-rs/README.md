@@ -73,7 +73,7 @@ The OEM credentials must be extracted from the Android APK — see the [workspac
 - **`discovery`** — UDP broadcast listener: find devices on the local network (ports 6666/6667)
 - **`connection`** — `DeviceConfig`, `TuyaConnection` (TCP), `TuyaPacket` encode/decode, `TuyaCommand` enum
 - **`crypto`** — AES-128-ECB with PKCS7 padding, hex encoding
-- **`api`** *(cloud)* — OEM Mobile API: login, device listing, AWS4 pre-signed URL generation
+- **`api`** *(cloud)* — OEM Mobile API: login, device listing, device control (`publish_dps`, `device_info`), AWS4 pre-signed URL generation
 - **`signing`** *(cloud)* — HMAC-SHA256 request signing with Tuya's custom sign string format
 
 ## License

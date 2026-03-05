@@ -3,9 +3,8 @@
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example clean_zone -- --x1 82 --y1 -13 --x2 453 --y2 203
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example clean_zone -- --x1 82 --y1 -13 --x2 453 --y2 203 --times 2
 
-use tuya_rs::connection::DeviceConfig;
-use xplorer_rs::device::{Device, XPlorer};
 use xplorer_rs::protocol::{Zone, ZoneCleanCommand};
+use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 
 fn parse_arg(args: &[String], flag: &str) -> Option<i16> {
     args.iter()
@@ -14,7 +13,8 @@ fn parse_arg(args: &[String], flag: &str) -> Option<i16> {
         .and_then(|v| v.parse().ok())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let config = DeviceConfig::from_env().unwrap_or_else(|e| {
         eprintln!("Missing env var: {e}");
         eprintln!(
@@ -61,14 +61,14 @@ fn main() {
     println!("Encoded (b64): {}", cmd.encode_base64());
 
     print!("Connecting to {}:{}... ", config.address, config.port);
-    let mut vacuum = XPlorer::connect(&config).unwrap_or_else(|e| {
+    let mut vacuum = LocalXPlorer::connect(&config).unwrap_or_else(|e| {
         eprintln!("FAILED: {e}");
         std::process::exit(1);
     });
     println!("OK");
 
     print!("Sending zone clean command (cmd 0x28)... ");
-    match vacuum.clean_zone(&cmd) {
+    match vacuum.clean_zone(&cmd).await {
         Ok(()) => println!("OK"),
         Err(e) => {
             eprintln!("FAILED: {e}");

@@ -2,46 +2,14 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Rust workspace for local control of **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners via the Tuya v3.3 protocol.
+Rust workspace for controlling **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners via the Tuya v3.3 protocol — locally over TCP or remotely via the Tuya cloud API.
 
 ## Crates
 
 | Crate | Description |
 |-------|-------------|
-| [`tuya-rs`](tuya-rs/) | Tuya v3.3 protocol layer — TCP connection, packet codec, AES-ECB encryption, UDP discovery |
-| [`xplorer-rs`](xplorer-rs/) | Vacuum control — room/zone cleaning, forbidden zones, virtual walls, map decoding |
-
-## Quick start
-
-### 1. Discover devices on your network
-
-```bash
-cargo run --example discover
-```
-
-This finds all Tuya devices via UDP broadcast and prints their `device_id` and `ip`.
-
-### 2. Get the local key
-
-The `local_key` (AES encryption key) is not included in the UDP broadcast. You can obtain it via:
-
-- **[tinytuya](https://github.com/jasonacox/tinytuya) wizard** — easiest method, uses the Tuya Developer Console
-- **The `cloud` feature of this crate** — uses the OEM Mobile API (same API the app uses), requires credentials extracted from the APK (see below)
-
-### 3. Control the vacuum
-
-```bash
-# Check vacuum status
-DEVICE_IP=192.168.1.42 DEVICE_ID=abc123 LOCAL_KEY=0123456789abcdef \
-  cargo run --example robot_status
-
-# Clean specific rooms (by room ID)
-DEVICE_IP=192.168.1.42 DEVICE_ID=abc123 LOCAL_KEY=0123456789abcdef \
-  cargo run --example clean_rooms -- 0 2 5
-
-# Download and render the map (requires cloud credentials)
-cargo run --example download_map --features cloud,render
-```
+| [`tuya-rs`](tuya-rs/) | Tuya v3.3 protocol layer — TCP connection, packet codec, AES-ECB encryption, UDP discovery, cloud API |
+| [`xplorer-rs`](xplorer-rs/) | Vacuum control — `LocalXPlorer` (TCP) and `CloudXPlorer` (cloud API), room/zone cleaning, forbidden zones, virtual walls, map decoding |
 
 ## Building
 
@@ -49,7 +17,7 @@ cargo run --example download_map --features cloud,render
 # Default (local-only control)
 cargo build
 
-# With cloud API support (login, device discovery, map download)
+# With cloud API support
 cargo build --features cloud
 
 # With map PNG rendering
@@ -66,29 +34,98 @@ cargo test --all-features
 
 | Flag | Crate | Description |
 |------|-------|-------------|
-| `cloud` | both | HTTP API client: login, device/home listing, AWS STS map storage |
+| `cloud` | both | HTTP API client: login, device/home listing, device control, AWS STS map storage |
 | `render` | `xplorer-rs` | PNG rendering of layout maps and cleaning routes |
 
 Default build is local-only TCP control with no network dependencies beyond `std::net`.
 
-## Examples
+---
+
+## Local control
+
+Direct TCP communication with the vacuum on your local network. No internet required, lowest latency. Uses the Tuya v3.3 protocol with AES-ECB encryption.
+
+### Prerequisites
+
+| Variable | Description | How to get |
+|----------|-------------|------------|
+| `DEVICE_IP` | Vacuum IP on your LAN | `local_discover` example or your router |
+| `DEVICE_ID` | Tuya device ID | `local_discover` or `cloud_discover` |
+| `LOCAL_KEY` | 16-byte AES encryption key | `cloud_discover`, [tinytuya](https://github.com/jasonacox/tinytuya) wizard, or cloud API |
+
+> **Note:** The `LOCAL_KEY` is not available via local discovery — you need the cloud API or tinytuya to obtain it.
+
+### Examples
+
+```bash
+# Discover devices on the local network (no credentials needed)
+cargo run --example local_discover
+
+# Device control
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- status
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- power_on
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- go_home
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- locate
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- clean_rooms 0 2 5
+
+# Zone cleaning and map restrictions
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example clean_zone -- --x1 82 --y1 -13 --x2 453 --y2 203
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example forbidden_zone -- zone --x1 82 --y1 -13 --x2 453 --y2 203
+DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example forbidden_zone -- wall --x1 100 --y1 100 --x2 400 --y2 100
+```
 
 | Example | Description |
 |---------|-------------|
-| `discover` | Find Tuya devices on the local network (no credentials needed) |
-| `robot_status` | Connect and display full device state |
-| `clean_rooms` | Send room cleaning command |
-| `clean_zone` | Clean a rectangular zone |
-| `forbidden_zone` | Set no-go zones |
-| `go_home` | Send the vacuum back to the charger |
-| `locate_robot` | Trigger the "find me" beep |
-| `download_map` | Download and render map from cloud (`cloud` + `render`) |
+| `local_discover` | Find Tuya devices on the local network via UDP broadcast |
+| `local_control` | Status, power on/off, go home, locate, clean rooms |
+| `clean_zone` | Clean a rectangular zone (cmd 0x28) |
+| `forbidden_zone` | Set no-go zones, no-sweep zones, virtual walls |
 
-## Cloud credentials
+---
 
-The `cloud` feature uses Tuya's **OEM Mobile API** — the same API the official app communicates with. This requires a set of credentials extracted from the Android APK.
+## Cloud control
 
-### API flow
+Remote control via the Tuya OEM Mobile API — the same API the official app uses. Works from anywhere, no local network access needed.
+
+Requires `--features cloud` at build time.
+
+### Prerequisites
+
+| Variable | Description |
+|----------|-------------|
+| `TUYA_EMAIL` | Email registered in the Rowenta / X-Plorer app |
+| `TUYA_PASSWORD` | Password for the same account |
+| `TUYA_DEV_ID` | Device ID (from `local_discover` or `cloud_discover`) |
+
+The OEM API credentials (client ID, app secret, BMP key, certificate hash) are hardcoded in `xplorer_oem_credentials()` — they are static values extracted from the Android APK and identical for every installation.
+
+### Examples
+
+```bash
+# Discover devices and get local keys
+TUYA_EMAIL=... TUYA_PASSWORD=... \
+  cargo run --example cloud_discover --features cloud
+
+# Device control
+TUYA_EMAIL=... TUYA_PASSWORD=... TUYA_DEV_ID=... \
+  cargo run --example cloud_control --features cloud -- status
+TUYA_EMAIL=... TUYA_PASSWORD=... TUYA_DEV_ID=... \
+  cargo run --example cloud_control --features cloud -- power_on
+TUYA_EMAIL=... TUYA_PASSWORD=... TUYA_DEV_ID=... \
+  cargo run --example cloud_control --features cloud -- clean_rooms 0 2
+
+# Download and render the map as PNG
+TUYA_EMAIL=... TUYA_PASSWORD=... TUYA_DEV_ID=... \
+  cargo run --example download_map --features cloud,render
+```
+
+| Example | Description |
+|---------|-------------|
+| `cloud_discover` | List all devices with local keys, names, and product IDs |
+| `cloud_control` | Status, power on/off, go home, locate, clean rooms |
+| `download_map` | Download map from AWS S3 and render as PNG (requires `render`) |
+
+### Cloud API flow
 
 ```
 login(email, password)  →  Session { sid }
@@ -98,31 +135,31 @@ storage_config(dev_id)  →  StorageCredentials { ak, sk, token, bucket, ... }
 generate_presigned_url  →  signed S3 URL for lay.bin / rou.bin
 ```
 
-### Environment variables
+### OEM credentials (for reference)
 
-| Variable | Source | Description |
-|----------|--------|-------------|
-| `TUYA_EMAIL` | Your account | Email registered in the Rowenta / X-Plorer app |
-| `TUYA_PASSWORD` | Your account | Password for the same account |
-| `TUYA_DEV_ID` | `discover` example or app | Device ID (also found via UDP discovery) |
-| `TUYA_CLIENT_ID` | APK decompilation | `appKey` from `SmartApplication.java` (jadx) |
-| `TUYA_APP_SECRET` | APK decompilation | `appSecret` from `SmartApplication.java` (jadx) |
-| `TUYA_BMP_KEY` | BMP steganography | Hidden in `assets/t_s.bmp`, extracted via Vandermonde matrix algorithm (see [tuya-sign-hacking](https://github.com/nalajcie/tuya-sign-hacking)) |
-| `TUYA_CERT_HASH` | APK signing cert | SHA-256 of the APK signing certificate (`keytool -printcert -jarfile app.apk`), colon-separated uppercase hex |
-| `TUYA_PACKAGE_NAME` | AndroidManifest.xml | App package name (e.g. `com.groupeseb.ext.xplorer`) |
-| `TUYA_APP_DEVICE_ID` | Free choice | Arbitrary device identifier sent with API requests — any 44-character lowercase hex string works (e.g. generate with `openssl rand -hex 22`) |
+The following values are extracted from the Android APK (`com.groupeseb.ext.xplorer`) and already embedded in the library:
 
-> **Note:** `TUYA_CLIENT_ID`, `TUYA_APP_SECRET`, `TUYA_CERT_HASH`, `TUYA_PACKAGE_NAME`, and `TUYA_BMP_KEY` are static (same for all installations of the app). `TUYA_APP_DEVICE_ID` can be any hex string — it identifies your API client, not the vacuum.
+| Credential | Value |
+|------------|-------|
+| Client ID | `staxmyjjd8thqxypvr5v` |
+| App Secret | `q39ksm4c5yps9atn9repakn4gxpja3vh` |
+| BMP Key | `4rkkvamwnhedxecyexd9t5cxkchxtqff` |
+| Cert Hash | `1B:D3:2E:D5:5E:D7:...` (SHA-256, colon-separated) |
+| Package Name | `com.groupeseb.ext.xplorer` |
 
-### How to extract each credential
+<details>
+<summary>How to extract these from any Tuya OEM app</summary>
 
 | Credential | Method |
 |------------|--------|
-| `TUYA_CLIENT_ID`, `TUYA_APP_SECRET` | Decompile the APK with [jadx](https://github.com/skylot/jadx), find `appKey`/`appSecret` in `SmartApplication.java` |
-| `TUYA_BMP_KEY` | Extract from `assets/t_s.bmp` using the Vandermonde algorithm from [tuya-sign-hacking](https://github.com/nalajcie/tuya-sign-hacking) |
-| `TUYA_CERT_HASH` | `keytool -printcert -jarfile app.apk` — SHA-256 digest, colon-separated |
-| `TUYA_PACKAGE_NAME` | Read from `AndroidManifest.xml` in the APK |
-| `TUYA_APP_DEVICE_ID` | Any 44-character lowercase hex string (e.g. `openssl rand -hex 22`) — identifies your API client |
+| Client ID, App Secret | Decompile the APK with [jadx](https://github.com/skylot/jadx), find `appKey`/`appSecret` in `SmartApplication.java` |
+| BMP Key | Extract from `assets/t_s.bmp` using the Vandermonde algorithm from [tuya-sign-hacking](https://github.com/nalajcie/tuya-sign-hacking) |
+| Cert Hash | `keytool -printcert -jarfile app.apk` — SHA-256 digest, colon-separated |
+| Package Name | Read from `AndroidManifest.xml` in the APK |
+
+</details>
+
+---
 
 ## How it works
 
