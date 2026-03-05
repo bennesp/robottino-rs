@@ -13,8 +13,7 @@
 //! Clear everything:
 //!   cargo run --example forbidden_zone -- clear-all
 
-use tuya_rs::connection::DeviceConfig;
-use xplorer_rs::device::{Device, XPlorer};
+use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 use xplorer_rs::protocol::{ForbiddenMode, ForbiddenZone, Wall, Zone};
 
 fn parse_arg<T: std::str::FromStr>(args: &[String], flag: &str) -> Option<T> {
@@ -56,7 +55,8 @@ Commands:
   clear-walls  Clear all virtual walls
   clear-all    Clear zones and walls";
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let config = DeviceConfig::from_env().unwrap_or_else(|e| {
         eprintln!("Missing env var: {e}");
         eprintln!("{USAGE}");
@@ -70,7 +70,7 @@ fn main() {
     });
 
     print!("Connecting to {}:{}... ", config.address, config.port);
-    let mut vacuum = XPlorer::connect(&config).unwrap_or_else(|e| {
+    let mut vacuum = LocalXPlorer::connect(&config).unwrap_or_else(|e| {
         eprintln!("FAILED: {e}");
         std::process::exit(1);
     });
@@ -101,7 +101,10 @@ fn main() {
             println!("Vertices: {:?}", zone.vertices);
 
             print!("Sending (cmd 0x1a)... ");
-            match vacuum.set_forbidden_zones(&[ForbiddenZone { mode, zone }]) {
+            match vacuum
+                .set_forbidden_zones(&[ForbiddenZone { mode, zone }])
+                .await
+            {
                 Ok(()) => println!("OK"),
                 Err(e) => {
                     eprintln!("FAILED: {e}");
@@ -114,10 +117,13 @@ fn main() {
             println!("Virtual wall: ({x1},{y1}) -> ({x2},{y2})");
 
             print!("Sending (cmd 0x12)... ");
-            match vacuum.set_virtual_walls(&[Wall {
-                start: (x1, y1),
-                end: (x2, y2),
-            }]) {
+            match vacuum
+                .set_virtual_walls(&[Wall {
+                    start: (x1, y1),
+                    end: (x2, y2),
+                }])
+                .await
+            {
                 Ok(()) => println!("OK"),
                 Err(e) => {
                     eprintln!("FAILED: {e}");
@@ -127,7 +133,7 @@ fn main() {
         }
         "clear-zones" => {
             print!("Clearing all forbidden zones... ");
-            match vacuum.clear_forbidden_zones() {
+            match vacuum.clear_forbidden_zones().await {
                 Ok(()) => println!("OK"),
                 Err(e) => {
                     eprintln!("FAILED: {e}");
@@ -137,7 +143,7 @@ fn main() {
         }
         "clear-walls" => {
             print!("Clearing all virtual walls... ");
-            match vacuum.clear_virtual_walls() {
+            match vacuum.clear_virtual_walls().await {
                 Ok(()) => println!("OK"),
                 Err(e) => {
                     eprintln!("FAILED: {e}");
@@ -147,7 +153,7 @@ fn main() {
         }
         "clear-all" => {
             print!("Clearing all forbidden zones... ");
-            match vacuum.clear_forbidden_zones() {
+            match vacuum.clear_forbidden_zones().await {
                 Ok(()) => println!("OK"),
                 Err(e) => {
                     eprintln!("FAILED: {e}");
@@ -155,7 +161,7 @@ fn main() {
                 }
             }
             print!("Clearing all virtual walls... ");
-            match vacuum.clear_virtual_walls() {
+            match vacuum.clear_virtual_walls().await {
                 Ok(()) => println!("OK"),
                 Err(e) => {
                     eprintln!("FAILED: {e}");
