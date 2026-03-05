@@ -1,5 +1,8 @@
 # robottino-rs
 
+[![xplorer-rs on crates.io](https://img.shields.io/crates/v/xplorer-rs.svg?label=xplorer-rs)](https://crates.io/crates/xplorer-rs)
+[![tuya-rs on crates.io](https://img.shields.io/crates/v/tuya-rs.svg?label=tuya-rs)](https://crates.io/crates/tuya-rs)
+[![docs.rs](https://docs.rs/xplorer-rs/badge.svg)](https://docs.rs/xplorer-rs)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Rust workspace for controlling **X-Plorer Serie 75 S / Serie 95 S** robot vacuum cleaners via the Tuya v3.3 protocol — locally over TCP or remotely via the Tuya cloud API.
