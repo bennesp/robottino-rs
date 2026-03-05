@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -94,6 +96,19 @@ pub struct Home {
     pub gid: u64,
     /// Home display name.
     pub name: String,
+}
+
+/// Cloud device info returned by the Tuya API.
+#[derive(Debug, Clone)]
+pub struct CloudDeviceInfo {
+    /// Tuya device ID.
+    pub dev_id: String,
+    /// Device display name.
+    pub name: String,
+    /// Whether the device is currently online.
+    pub is_online: bool,
+    /// Current DPS values, if available.
+    pub dps: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Cloud storage credentials for map download (AWS STS temporary).
@@ -331,6 +346,10 @@ pub trait TuyaApi {
     async fn list_devices(&self, gid: u64) -> Result<Vec<DeviceInfo>, ApiError>;
     /// Get temporary AWS credentials for downloading map files.
     async fn storage_config(&self, dev_id: &str) -> Result<StorageCredentials, ApiError>;
+    /// Publish DPS values to a device via the cloud.
+    async fn publish_dps(&self, dev_id: &str, dps: &serde_json::Value) -> Result<(), ApiError>;
+    /// Get device info (name, online status, current DPS) from the cloud.
+    async fn device_info(&self, dev_id: &str) -> Result<CloudDeviceInfo, ApiError>;
 }
 
 // ── Concrete API client ────────────────────────────────────
@@ -614,6 +633,47 @@ impl<H: HttpClient> TuyaApi for TuyaOemApi<H> {
                 .as_str()
                 .unwrap_or("")
                 .to_string(),
+        })
+    }
+
+    async fn publish_dps(&self, dev_id: &str, dps: &serde_json::Value) -> Result<(), ApiError> {
+        let post_data = serde_json::json!({
+            "devId": dev_id,
+            "gwId": dev_id,
+            "dps": dps,
+        })
+        .to_string();
+
+        self.raw_call("tuya.m.device.dp.publish", "1.0", &post_data, &[])
+            .await?;
+        Ok(())
+    }
+
+    async fn device_info(&self, dev_id: &str) -> Result<CloudDeviceInfo, ApiError> {
+        let post_data = serde_json::json!({
+            "devId": dev_id,
+        })
+        .to_string();
+
+        let resp = self
+            .raw_call("tuya.m.device.get", "1.0", &post_data, &[])
+            .await?;
+        let resp: serde_json::Value =
+            serde_json::from_str(&resp).map_err(|e| ApiError::ParseError(e.to_string()))?;
+        let result = resp
+            .get("result")
+            .ok_or_else(|| ApiError::ParseError("no result".into()))?;
+
+        let dps = result
+            .get("dps")
+            .and_then(|v| v.as_object())
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+
+        Ok(CloudDeviceInfo {
+            dev_id: result["devId"].as_str().unwrap_or(dev_id).to_string(),
+            name: result["name"].as_str().unwrap_or("").to_string(),
+            is_online: result["isOnline"].as_bool().unwrap_or(false),
+            dps,
         })
     }
 }
@@ -1105,6 +1165,64 @@ mod tests {
             ]);
             assert!(matches!(
                 api.login("a@b.com", "pw").await.unwrap_err(),
+                ApiError::ParseError(_)
+            ));
+        }
+
+        // ── publish_dps ───────────────────────────────────
+
+        #[tokio::test]
+        async fn publish_dps_success() {
+            let api = mock_api(vec![r#"{"result":true}"#]);
+            api.publish_dps("dev1", &serde_json::json!({"1": true}))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn publish_dps_error() {
+            let api = mock_api(vec![
+                r#"{"errorCode":"USER_SESSION_INVALID","errorMsg":"expired"}"#,
+            ]);
+            assert!(matches!(
+                api.publish_dps("dev1", &serde_json::json!({"1": true}))
+                    .await
+                    .unwrap_err(),
+                ApiError::SessionInvalid
+            ));
+        }
+
+        // ── device_info ──────────────────────────────────
+
+        #[tokio::test]
+        async fn device_info_success() {
+            let api = mock_api(vec![
+                r#"{"result":{"devId":"d1","name":"Robot","isOnline":true,"dps":{"1":true,"8":72}}}"#,
+            ]);
+            let info = api.device_info("d1").await.unwrap();
+            assert_eq!(info.dev_id, "d1");
+            assert_eq!(info.name, "Robot");
+            assert!(info.is_online);
+            let dps = info.dps.unwrap();
+            assert_eq!(dps["1"], serde_json::json!(true));
+            assert_eq!(dps["8"], serde_json::json!(72));
+        }
+
+        #[tokio::test]
+        async fn device_info_defaults() {
+            let api = mock_api(vec![r#"{"result":{}}"#]);
+            let info = api.device_info("d1").await.unwrap();
+            assert_eq!(info.dev_id, "d1");
+            assert_eq!(info.name, "");
+            assert!(!info.is_online);
+            assert!(info.dps.is_none());
+        }
+
+        #[tokio::test]
+        async fn device_info_no_result() {
+            let api = mock_api(vec![r#"{}"#]);
+            assert!(matches!(
+                api.device_info("d1").await.unwrap_err(),
                 ApiError::ParseError(_)
             ));
         }
