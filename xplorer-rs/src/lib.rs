@@ -3,18 +3,23 @@
 
 //! # xplorer-rs
 //!
-//! Local control library for X-Plorer Serie 75 S / Serie 95 S robot vacuum cleaners.
+//! Control library for X-Plorer Serie 75 S / Serie 95 S robot vacuum cleaners.
 //!
 //! Built on top of [`tuya_rs`] for Tuya v3.3 protocol communication. Provides
 //! high-level commands (room cleaning, zone cleaning, forbidden zones, virtual walls)
 //! and map file decoding (layout + route).
 //!
-//! ## Quick start
+//! Two implementations of the [`Device`] trait are available:
+//!
+//! - [`LocalXPlorer`] — local TCP control via the Tuya v3.3 protocol (default)
+//! - [`CloudXPlorer`] — cloud control via the Tuya OEM Mobile API (`cloud` feature)
+//!
+//! ## Quick start (local)
 //!
 //! ```no_run
-//! use xplorer_rs::{XPlorer, Device};
+//! # async fn example() {
+//! use xplorer_rs::{LocalXPlorer, Device, DeviceConfig};
 //! use xplorer_rs::protocol::{RoomCleanCommand, Zone, ZoneCleanCommand};
-//! use tuya_rs::connection::DeviceConfig;
 //!
 //! let config = DeviceConfig {
 //!     dev_id: "device_id_here".into(),
@@ -22,23 +27,39 @@
 //!     local_key: "0123456789abcdef".into(),
 //!     ..Default::default()
 //! };
-//! let mut robot = XPlorer::connect(&config).unwrap();
+//! let mut robot = LocalXPlorer::connect(&config).unwrap();
 //!
 //! // Check status
-//! let state = robot.status().unwrap();
+//! let state = robot.status().await.unwrap();
 //! println!("battery: {}%, mode: {}", state.battery, state.mode);
 //!
 //! // Clean specific rooms (1 pass, rooms 0 and 2)
 //! robot.clean_rooms(&RoomCleanCommand {
 //!     clean_times: 1,
 //!     room_ids: vec![0, 2],
-//! }).unwrap();
+//! }).await.unwrap();
 //!
 //! // Or clean a rectangular zone
 //! robot.clean_zone(&ZoneCleanCommand {
 //!     clean_times: 1,
 //!     zones: vec![Zone::rect(82, -13, 453, 203)],
-//! }).unwrap();
+//! }).await.unwrap();
+//! # }
+//! ```
+//!
+//! ## Quick start (cloud)
+//!
+//! ```no_run
+//! # #[cfg(feature = "cloud")]
+//! # async fn example() {
+//! use xplorer_rs::{CloudXPlorer, Device, xplorer_oem_credentials};
+//!
+//! let oem_creds = xplorer_oem_credentials("your_44char_hex_app_device_id_here");
+//! let mut robot = CloudXPlorer::login(oem_creds, "you@email.com", "password", "your_device_id")
+//!     .await.unwrap();
+//! let state = robot.status().await.unwrap();
+//! println!("battery: {}%, mode: {}", state.battery, state.mode);
+//! # }
 //! ```
 //!
 //! ## Parsing device events
@@ -74,10 +95,14 @@
 //! ## Features
 //!
 //! - **Default**: local TCP control, map decoding (LZ4-compressed layout + route)
-//! - **`cloud`**: cloud API access (login, device discovery, map download via AWS STS)
+//! - **`cloud`**: cloud API access (login, device discovery, map download via AWS STS),
+//!   [`CloudXPlorer`] for remote device control
 //! - **`render`**: PNG rendering of layout maps and cleaning routes
 
-/// Vacuum cleaner device control via Tuya TCP.
+/// Cloud-based vacuum control via Tuya OEM API.
+#[cfg(feature = "cloud")]
+pub mod cloud_device;
+/// Vacuum cleaner device control: [`Device`] trait, [`LocalXPlorer`] (local TCP).
 pub mod device;
 /// Map file decoder (layout + route) with optional PNG rendering.
 pub mod map;
@@ -87,8 +112,16 @@ pub mod protocol;
 pub mod types;
 
 // Re-export for convenience
+pub use device::{Device, LocalXPlorer};
+pub use tuya_rs;
+pub use tuya_rs::connection::{DeviceConfig, DeviceError, DpValue, DpsUpdate, Transport};
+pub use tuya_rs::discovery;
+
+#[cfg(feature = "cloud")]
+pub use cloud_device::{cloud_discover, CloudXPlorer};
 #[cfg(feature = "cloud")]
 pub use device::xplorer_oem_credentials;
-pub use device::{Device, XPlorer};
-pub use tuya_rs;
-pub use tuya_rs::connection::Transport;
+#[cfg(feature = "cloud")]
+pub use tuya_rs::api::{
+    generate_presigned_url, DeviceInfo, Home, StorageCredentials,
+};
