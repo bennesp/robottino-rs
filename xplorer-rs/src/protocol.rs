@@ -441,6 +441,25 @@ impl VirtualWallCommand {
     }
 }
 
+/// Build a raw sweeper frame: `0xAA` + length(2 BE) + cmd + data + checksum.
+///
+/// Used by both local and cloud device implementations to encode DP 15 commands.
+pub fn build_sweeper_frame(cmd: u8, data: &[u8]) -> Vec<u8> {
+    let payload_len = 1 + data.len();
+    let mut frame = Vec::with_capacity(3 + payload_len + 1);
+    frame.push(0xAA);
+    frame.push((payload_len >> 8) as u8);
+    frame.push(payload_len as u8);
+    frame.push(cmd);
+    frame.extend_from_slice(data);
+    let checksum: u8 = frame[3..]
+        .iter()
+        .copied()
+        .fold(0u16, |acc, b| acc + b as u16) as u8;
+    frame.push(checksum);
+    frame
+}
+
 /// A decoded DP 15 message from the vacuum cleaner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SweeperMessage {

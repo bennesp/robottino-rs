@@ -10,7 +10,7 @@ use tuya_rs::connection::{
 
 use crate::protocol::{
     ForbiddenZone, ForbiddenZoneCommand, RoomCleanCommand, RoomCleanStatusResponse, SweeperMessage,
-    VirtualWallCommand, Wall, ZoneCleanCommand,
+    VirtualWallCommand, Wall, ZoneCleanCommand, build_sweeper_frame,
 };
 use crate::types::*;
 
@@ -33,53 +33,55 @@ pub fn xplorer_oem_credentials(app_device_id: impl Into<String>) -> tuya_rs::api
     }
 }
 
-/// Vacuum cleaner control via Tuya v3.3 TCP protocol.
+/// Vacuum cleaner control — works over local TCP or cloud API.
+#[allow(async_fn_in_trait)]
 pub trait Device {
     /// Query the full device state by triggering DPS updates.
-    fn status(&mut self) -> Result<DeviceState, DeviceError>;
+    async fn status(&mut self) -> Result<DeviceState, DeviceError>;
     /// Turn the vacuum on (DP 1 = true).
-    fn power_on(&mut self) -> Result<(), DeviceError>;
+    async fn power_on(&mut self) -> Result<(), DeviceError>;
     /// Turn the vacuum off (DP 1 = false).
-    fn power_off(&mut self) -> Result<(), DeviceError>;
+    async fn power_off(&mut self) -> Result<(), DeviceError>;
     /// Pause the current operation (DP 2 = false).
-    fn pause(&mut self) -> Result<(), DeviceError>;
+    async fn pause(&mut self) -> Result<(), DeviceError>;
     /// Resume the current operation (DP 2 = true).
-    fn resume(&mut self) -> Result<(), DeviceError>;
+    async fn resume(&mut self) -> Result<(), DeviceError>;
     /// Send the vacuum back to the charging dock.
-    fn charge_go(&mut self) -> Result<(), DeviceError>;
+    async fn charge_go(&mut self) -> Result<(), DeviceError>;
     /// Make the vacuum emit a sound to help locate it.
-    fn locate(&mut self) -> Result<(), DeviceError>;
+    async fn locate(&mut self) -> Result<(), DeviceError>;
     /// Set the cleaning mode (smart, wall_follow, spiral, etc.).
-    fn set_mode(&mut self, mode: Mode) -> Result<(), DeviceError>;
+    async fn set_mode(&mut self, mode: Mode) -> Result<(), DeviceError>;
     /// Start room-based cleaning for the specified rooms.
-    fn clean_rooms(
+    async fn clean_rooms(
         &mut self,
         cmd: &RoomCleanCommand,
     ) -> Result<Option<RoomCleanStatusResponse>, DeviceError>;
     /// Start zone-based cleaning for the specified rectangular zones.
-    fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError>;
+    async fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError>;
     /// Set forbidden zones (no-go, no-sweep, no-mop areas).
-    fn set_forbidden_zones(&mut self, zones: &[ForbiddenZone]) -> Result<(), DeviceError>;
+    async fn set_forbidden_zones(&mut self, zones: &[ForbiddenZone]) -> Result<(), DeviceError>;
     /// Clear all forbidden zones.
-    fn clear_forbidden_zones(&mut self) -> Result<(), DeviceError>;
+    async fn clear_forbidden_zones(&mut self) -> Result<(), DeviceError>;
     /// Set virtual wall barriers.
-    fn set_virtual_walls(&mut self, walls: &[Wall]) -> Result<(), DeviceError>;
+    async fn set_virtual_walls(&mut self, walls: &[Wall]) -> Result<(), DeviceError>;
     /// Clear all virtual walls.
-    fn clear_virtual_walls(&mut self) -> Result<(), DeviceError>;
+    async fn clear_virtual_walls(&mut self) -> Result<(), DeviceError>;
     /// Query the current room cleaning status.
-    fn query_room_status(&mut self) -> Result<Option<RoomCleanStatusResponse>, DeviceError>;
+    async fn query_room_status(&mut self) -> Result<Option<RoomCleanStatusResponse>, DeviceError>;
     /// Set the suction power level.
-    fn set_suction(&mut self, level: SuctionLevel) -> Result<(), DeviceError>;
+    async fn set_suction(&mut self, level: SuctionLevel) -> Result<(), DeviceError>;
     /// Set the mopping water level.
-    fn set_mop(&mut self, level: MopLevel) -> Result<(), DeviceError>;
+    async fn set_mop(&mut self, level: MopLevel) -> Result<(), DeviceError>;
     /// Set the speaker volume (0-100).
-    fn set_volume(&mut self, volume: u8) -> Result<(), DeviceError>;
+    async fn set_volume(&mut self, volume: u8) -> Result<(), DeviceError>;
     /// Enable or disable Do Not Disturb mode.
-    fn set_dnd(&mut self, enabled: bool) -> Result<(), DeviceError>;
+    async fn set_dnd(&mut self, enabled: bool) -> Result<(), DeviceError>;
     /// Set a raw DP value and return any follow-up status update.
-    fn set_value(&mut self, dp: u8, value: DpValue) -> Result<Option<DpsUpdate>, DeviceError>;
+    async fn set_value(&mut self, dp: u8, value: DpValue)
+    -> Result<Option<DpsUpdate>, DeviceError>;
     /// Send a raw DP 15 sweeper command and return the response.
-    fn send_raw_command(
+    async fn send_raw_command(
         &mut self,
         cmd: u8,
         payload: &[u8],
@@ -87,13 +89,14 @@ pub trait Device {
 }
 
 /// Real-time listener for DPS changes.
+#[allow(async_fn_in_trait)]
 pub trait DeviceListener {
     /// Start listening for DPS change events, calling the callback for each batch.
-    fn listen<F>(&mut self, on_event: F) -> Result<(), DeviceError>
+    async fn listen<F>(&mut self, on_event: F) -> Result<(), DeviceError>
     where
         F: FnMut(Vec<DpsEvent>);
     /// Stop listening for events.
-    fn stop(&mut self);
+    async fn stop(&mut self);
 }
 
 // ── Helpers (transport-independent) ─────────────────────────
@@ -118,24 +121,25 @@ fn extract_sweeper(payload: &[u8]) -> Option<SweeperMessage> {
     SweeperMessage::decode_base64(dp15).ok()
 }
 
-// ── XPlorer ─────────────────────────────────────────────────
+// ── LocalXPlorer ─────────────────────────────────────────────────
 
 /// X-Plorer Serie 75 S / Serie 95 S vacuum cleaner.
 ///
 /// Generic over the transport layer: uses [`TuyaConnection`] by default
 /// for real TCP communication, but accepts any [`Transport`] implementation
 /// (useful for testing with mocks).
-pub struct XPlorer<T: Transport = TuyaConnection> {
+pub struct LocalXPlorer<T: Transport = TuyaConnection> {
     conn: T,
 }
 
-impl XPlorer {
+impl LocalXPlorer {
     /// Connect to an X-Plorer vacuum at the given device config.
     ///
     /// # Examples
     ///
     /// ```no_run
-    /// use xplorer_rs::XPlorer;
+    /// # async fn example() {
+    /// use xplorer_rs::LocalXPlorer;
     /// use xplorer_rs::device::Device;
     /// use xplorer_rs::protocol::RoomCleanCommand;
     /// use tuya_rs::connection::DeviceConfig;
@@ -146,12 +150,13 @@ impl XPlorer {
     ///     local_key: "0123456789abcdef".into(),
     ///     ..Default::default()
     /// };
-    /// let mut robot = XPlorer::connect(&config).unwrap();
-    /// let state = robot.status().unwrap();
+    /// let mut robot = LocalXPlorer::connect(&config).unwrap();
+    /// let state = robot.status().await.unwrap();
     /// println!("battery: {}%", state.battery);
     ///
     /// let cmd = RoomCleanCommand { clean_times: 1, room_ids: vec![0, 2] };
-    /// robot.clean_rooms(&cmd).unwrap();
+    /// robot.clean_rooms(&cmd).await.unwrap();
+    /// # }
     /// ```
     pub fn connect(config: &DeviceConfig) -> Result<Self, DeviceError> {
         Ok(Self {
@@ -160,8 +165,8 @@ impl XPlorer {
     }
 }
 
-impl<T: Transport> XPlorer<T> {
-    /// Create an XPlorer from any [`Transport`] implementation.
+impl<T: Transport> LocalXPlorer<T> {
+    /// Create a LocalXPlorer from any [`Transport`] implementation.
     pub fn new(transport: T) -> Self {
         Self { conn: transport }
     }
@@ -209,8 +214,8 @@ impl<T: Transport> XPlorer<T> {
     }
 }
 
-impl<T: Transport> Device for XPlorer<T> {
-    fn status(&mut self) -> Result<DeviceState, DeviceError> {
+impl<T: Transport> Device for LocalXPlorer<T> {
+    async fn status(&mut self) -> Result<DeviceState, DeviceError> {
         // DpQuery returns "parse data error" on this device — expected.
         // We send it to trigger STATUS pushes.
         let query = serde_json::json!({
@@ -237,42 +242,42 @@ impl<T: Transport> Device for XPlorer<T> {
             .map_err(|e| DeviceError::InvalidResponse(format!("DPS parse error: {e}")))
     }
 
-    fn power_on(&mut self) -> Result<(), DeviceError> {
+    async fn power_on(&mut self) -> Result<(), DeviceError> {
         self.set_dp(1, json!(true))?;
         Ok(())
     }
 
-    fn power_off(&mut self) -> Result<(), DeviceError> {
+    async fn power_off(&mut self) -> Result<(), DeviceError> {
         self.set_dp(1, json!(false))?;
         Ok(())
     }
 
-    fn pause(&mut self) -> Result<(), DeviceError> {
+    async fn pause(&mut self) -> Result<(), DeviceError> {
         self.set_dp(2, json!(false))?;
         Ok(())
     }
 
-    fn resume(&mut self) -> Result<(), DeviceError> {
+    async fn resume(&mut self) -> Result<(), DeviceError> {
         self.set_dp(2, json!(true))?;
         Ok(())
     }
 
-    fn charge_go(&mut self) -> Result<(), DeviceError> {
+    async fn charge_go(&mut self) -> Result<(), DeviceError> {
         self.set_dp(4, json!("chargego"))?;
         Ok(())
     }
 
-    fn locate(&mut self) -> Result<(), DeviceError> {
+    async fn locate(&mut self) -> Result<(), DeviceError> {
         self.set_dp(13, json!(true))?;
         Ok(())
     }
 
-    fn set_mode(&mut self, mode: Mode) -> Result<(), DeviceError> {
+    async fn set_mode(&mut self, mode: Mode) -> Result<(), DeviceError> {
         self.set_dp(4, json!(mode.as_str()))?;
         Ok(())
     }
 
-    fn clean_rooms(
+    async fn clean_rooms(
         &mut self,
         cmd: &RoomCleanCommand,
     ) -> Result<Option<RoomCleanStatusResponse>, DeviceError> {
@@ -281,14 +286,14 @@ impl<T: Transport> Device for XPlorer<T> {
         Ok(self.drain_sweeper_response())
     }
 
-    fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError> {
+    async fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError> {
         let b64 = cmd.encode_base64();
         self.set_dp(15, json!(b64))?;
         self.drain_status();
         Ok(())
     }
 
-    fn set_forbidden_zones(&mut self, zones: &[ForbiddenZone]) -> Result<(), DeviceError> {
+    async fn set_forbidden_zones(&mut self, zones: &[ForbiddenZone]) -> Result<(), DeviceError> {
         let cmd = ForbiddenZoneCommand {
             zones: zones.to_vec(),
         };
@@ -298,11 +303,11 @@ impl<T: Transport> Device for XPlorer<T> {
         Ok(())
     }
 
-    fn clear_forbidden_zones(&mut self) -> Result<(), DeviceError> {
-        self.set_forbidden_zones(&[])
+    async fn clear_forbidden_zones(&mut self) -> Result<(), DeviceError> {
+        self.set_forbidden_zones(&[]).await
     }
 
-    fn set_virtual_walls(&mut self, walls: &[Wall]) -> Result<(), DeviceError> {
+    async fn set_virtual_walls(&mut self, walls: &[Wall]) -> Result<(), DeviceError> {
         let cmd = VirtualWallCommand {
             walls: walls.to_vec(),
         };
@@ -312,11 +317,11 @@ impl<T: Transport> Device for XPlorer<T> {
         Ok(())
     }
 
-    fn clear_virtual_walls(&mut self) -> Result<(), DeviceError> {
-        self.set_virtual_walls(&[])
+    async fn clear_virtual_walls(&mut self) -> Result<(), DeviceError> {
+        self.set_virtual_walls(&[]).await
     }
 
-    fn query_room_status(&mut self) -> Result<Option<RoomCleanStatusResponse>, DeviceError> {
+    async fn query_room_status(&mut self) -> Result<Option<RoomCleanStatusResponse>, DeviceError> {
         // Query frame: aa 00 01 15 15
         let frame = vec![0xAA, 0x00, 0x01, 0x15, 0x15];
         let b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
@@ -324,27 +329,31 @@ impl<T: Transport> Device for XPlorer<T> {
         Ok(self.drain_sweeper_response())
     }
 
-    fn set_suction(&mut self, level: SuctionLevel) -> Result<(), DeviceError> {
+    async fn set_suction(&mut self, level: SuctionLevel) -> Result<(), DeviceError> {
         self.set_dp(9, json!(level.as_str()))?;
         Ok(())
     }
 
-    fn set_mop(&mut self, level: MopLevel) -> Result<(), DeviceError> {
+    async fn set_mop(&mut self, level: MopLevel) -> Result<(), DeviceError> {
         self.set_dp(10, json!(level.as_str()))?;
         Ok(())
     }
 
-    fn set_volume(&mut self, volume: u8) -> Result<(), DeviceError> {
+    async fn set_volume(&mut self, volume: u8) -> Result<(), DeviceError> {
         self.set_dp(26, json!(volume))?;
         Ok(())
     }
 
-    fn set_dnd(&mut self, enabled: bool) -> Result<(), DeviceError> {
+    async fn set_dnd(&mut self, enabled: bool) -> Result<(), DeviceError> {
         self.set_dp(25, json!(enabled))?;
         Ok(())
     }
 
-    fn set_value(&mut self, dp: u8, value: DpValue) -> Result<Option<DpsUpdate>, DeviceError> {
+    async fn set_value(
+        &mut self,
+        dp: u8,
+        value: DpValue,
+    ) -> Result<Option<DpsUpdate>, DeviceError> {
         let json_val = match &value {
             DpValue::Boolean(b) => json!(*b),
             DpValue::Integer(n) => json!(*n),
@@ -373,25 +382,12 @@ impl<T: Transport> Device for XPlorer<T> {
         }))
     }
 
-    fn send_raw_command(
+    async fn send_raw_command(
         &mut self,
         cmd: u8,
         data: &[u8],
     ) -> Result<Option<SweeperMessage>, DeviceError> {
-        // Build sweeper frame: AA + len(2 BE) + cmd + data + checksum
-        let payload_len = 1 + data.len();
-        let mut frame = Vec::with_capacity(3 + payload_len + 1);
-        frame.push(0xAA);
-        frame.push((payload_len >> 8) as u8);
-        frame.push(payload_len as u8);
-        frame.push(cmd);
-        frame.extend_from_slice(data);
-        let checksum: u8 = frame[3..]
-            .iter()
-            .copied()
-            .fold(0u16, |acc, b| acc + b as u16) as u8;
-        frame.push(checksum);
-
+        let frame = build_sweeper_frame(cmd, data);
         let b64 = base64::engine::general_purpose::STANDARD.encode(&frame);
         self.set_dp(15, json!(b64))?;
 
@@ -509,12 +505,12 @@ mod tests {
         })
     }
 
-    fn mock_robot(responses: Vec<Result<TuyaPacket, DeviceError>>) -> XPlorer<MockTransport> {
-        XPlorer::new(MockTransport::new(responses))
+    fn mock_robot(responses: Vec<Result<TuyaPacket, DeviceError>>) -> LocalXPlorer<MockTransport> {
+        LocalXPlorer::new(MockTransport::new(responses))
     }
 
     /// Extract the DPS JSON sent in the last Control command.
-    fn sent_dps(robot: &XPlorer<MockTransport>) -> serde_json::Value {
+    fn sent_dps(robot: &LocalXPlorer<MockTransport>) -> serde_json::Value {
         let (cmd, payload) = robot.conn.sent.last().expect("no commands sent");
         assert_eq!(*cmd, TuyaCommand::Control);
         serde_json::from_slice(payload).expect("sent payload is not valid JSON")
@@ -634,112 +630,112 @@ mod tests {
         assert_eq!(mock_robot(vec![]).dev_id(), "mock_device");
     }
 
-    #[test]
-    fn power_on_sends_dp1_true() {
+    #[tokio::test]
+    async fn power_on_sends_dp1_true() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.power_on().unwrap();
+        robot.power_on().await.unwrap();
         assert_eq!(robot.conn.sent.len(), 1);
         assert_eq!(robot.conn.sent[0].0, TuyaCommand::Control);
         assert_eq!(sent_dps(&robot)["dps"]["1"], true);
     }
 
-    #[test]
-    fn power_off_sends_dp1_false() {
+    #[tokio::test]
+    async fn power_off_sends_dp1_false() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.power_off().unwrap();
+        robot.power_off().await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["1"], false);
     }
 
-    #[test]
-    fn pause_sends_dp2_false() {
+    #[tokio::test]
+    async fn pause_sends_dp2_false() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.pause().unwrap();
+        robot.pause().await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["2"], false);
     }
 
-    #[test]
-    fn resume_sends_dp2_true() {
+    #[tokio::test]
+    async fn resume_sends_dp2_true() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.resume().unwrap();
+        robot.resume().await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["2"], true);
     }
 
-    #[test]
-    fn charge_go_sends_chargego() {
+    #[tokio::test]
+    async fn charge_go_sends_chargego() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.charge_go().unwrap();
+        robot.charge_go().await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["4"], "chargego");
     }
 
-    #[test]
-    fn locate_sends_dp13_true() {
+    #[tokio::test]
+    async fn locate_sends_dp13_true() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.locate().unwrap();
+        robot.locate().await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["13"], true);
     }
 
-    #[test]
-    fn set_mode_sends_mode_string() {
+    #[tokio::test]
+    async fn set_mode_sends_mode_string() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.set_mode(Mode::WallFollow).unwrap();
+        robot.set_mode(Mode::WallFollow).await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["4"], "wall_follow");
     }
 
-    #[test]
-    fn set_suction_sends_dp9() {
+    #[tokio::test]
+    async fn set_suction_sends_dp9() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.set_suction(SuctionLevel::Strong).unwrap();
+        robot.set_suction(SuctionLevel::Strong).await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["9"], "strong");
     }
 
-    #[test]
-    fn set_mop_sends_dp10() {
+    #[tokio::test]
+    async fn set_mop_sends_dp10() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.set_mop(MopLevel::High).unwrap();
+        robot.set_mop(MopLevel::High).await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["10"], "high");
     }
 
-    #[test]
-    fn set_volume_sends_dp26() {
+    #[tokio::test]
+    async fn set_volume_sends_dp26() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.set_volume(75).unwrap();
+        robot.set_volume(75).await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["26"], 75);
     }
 
-    #[test]
-    fn set_dnd_sends_dp25() {
+    #[tokio::test]
+    async fn set_dnd_sends_dp25() {
         let mut robot = mock_robot(vec![ok_packet(b"{}")]);
-        robot.set_dnd(true).unwrap();
+        robot.set_dnd(true).await.unwrap();
         assert_eq!(sent_dps(&robot)["dps"]["25"], true);
     }
 
-    #[test]
-    fn status_collects_dps_from_multiple_pushes() {
+    #[tokio::test]
+    async fn status_collects_dps_from_multiple_pushes() {
         let mut robot = mock_robot(vec![
             ok_packet(br#"{"dps":{"1":true,"8":72}}"#),
             ok_packet(br#"{"dps":{"4":"smart","5":"cleaning","9":"normal","10":"closed"}}"#),
             Err(DeviceError::Timeout),
         ]);
-        let state = robot.status().unwrap();
+        let state = robot.status().await.unwrap();
         assert!(state.power);
         assert_eq!(state.battery, 72);
         assert_eq!(state.mode, Mode::Smart);
     }
 
-    #[test]
-    fn status_handles_timeout_on_query() {
+    #[tokio::test]
+    async fn status_handles_timeout_on_query() {
         let mut robot = mock_robot(vec![
             Err(DeviceError::Timeout),
             ok_packet(br#"{"dps":{"1":false,"4":"smart","5":"cleaning","8":50,"9":"normal","10":"closed"}}"#),
             Err(DeviceError::Timeout),
         ]);
-        let state = robot.status().unwrap();
+        let state = robot.status().await.unwrap();
         assert!(!state.power);
         assert_eq!(state.battery, 50);
     }
 
-    #[test]
-    fn clean_rooms_sends_dp15_and_reads_response() {
+    #[tokio::test]
+    async fn clean_rooms_sends_dp15_and_reads_response() {
         let cmd = RoomCleanCommand {
             clean_times: 1,
             room_ids: vec![0, 2],
@@ -749,86 +745,92 @@ mod tests {
             ok_packet(br#"{"dps":{"15":"qgAEFQEBBBs="}}"#),
             Err(DeviceError::Timeout),
         ]);
-        let resp = robot.clean_rooms(&cmd).unwrap();
+        let resp = robot.clean_rooms(&cmd).await.unwrap();
         assert!(resp.is_some());
         assert_eq!(resp.unwrap().clean_times, 1);
     }
 
-    #[test]
-    fn clean_zone_sends_dp15() {
+    #[tokio::test]
+    async fn clean_zone_sends_dp15() {
         let cmd = ZoneCleanCommand {
             clean_times: 1,
             zones: vec![crate::protocol::Zone::rect(10, 20, 100, 200)],
         };
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        robot.clean_zone(&cmd).unwrap();
+        robot.clean_zone(&cmd).await.unwrap();
         assert!(sent_dps(&robot)["dps"]["15"].is_string());
     }
 
-    #[test]
-    fn set_forbidden_zones_sends_dp15() {
+    #[tokio::test]
+    async fn set_forbidden_zones_sends_dp15() {
         let zone = ForbiddenZone {
             mode: crate::protocol::ForbiddenMode::FullBan,
             zone: crate::protocol::Zone::rect(0, 0, 100, 100),
         };
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        robot.set_forbidden_zones(&[zone]).unwrap();
+        robot.set_forbidden_zones(&[zone]).await.unwrap();
         assert!(sent_dps(&robot)["dps"]["15"].is_string());
     }
 
-    #[test]
-    fn clear_forbidden_zones_sends_empty() {
+    #[tokio::test]
+    async fn clear_forbidden_zones_sends_empty() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        robot.clear_forbidden_zones().unwrap();
+        robot.clear_forbidden_zones().await.unwrap();
         assert!(sent_dps(&robot)["dps"]["15"].is_string());
     }
 
-    #[test]
-    fn set_virtual_walls_sends_dp15() {
+    #[tokio::test]
+    async fn set_virtual_walls_sends_dp15() {
         let wall = Wall {
             start: (0, 0),
             end: (100, 100),
         };
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        robot.set_virtual_walls(&[wall]).unwrap();
+        robot.set_virtual_walls(&[wall]).await.unwrap();
         assert!(sent_dps(&robot)["dps"]["15"].is_string());
     }
 
-    #[test]
-    fn clear_virtual_walls_sends_empty() {
+    #[tokio::test]
+    async fn clear_virtual_walls_sends_empty() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        robot.clear_virtual_walls().unwrap();
+        robot.clear_virtual_walls().await.unwrap();
         assert_eq!(robot.conn.sent.len(), 1);
     }
 
-    #[test]
-    fn set_value_boolean_returns_update() {
+    #[tokio::test]
+    async fn set_value_boolean_returns_update() {
         let mut robot = mock_robot(vec![
             ok_packet(b"{}"),
             ok_packet(br#"{"dps":{"1":true}}"#),
             Err(DeviceError::Timeout),
         ]);
-        let update = robot.set_value(1, DpValue::Boolean(true)).unwrap().unwrap();
+        let update = robot
+            .set_value(1, DpValue::Boolean(true))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(update.dps.len(), 1);
         assert_eq!(update.dps[0].0, 1);
     }
 
-    #[test]
-    fn set_value_no_followup_returns_none() {
+    #[tokio::test]
+    async fn set_value_no_followup_returns_none() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
         assert!(
             robot
                 .set_value(1, DpValue::Boolean(true))
+                .await
                 .unwrap()
                 .is_none()
         );
     }
 
-    #[test]
-    fn set_value_raw_sends_base64() {
+    #[tokio::test]
+    async fn set_value_raw_sends_base64() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
         robot
             .set_value(15, DpValue::Raw(vec![0xAA, 0x00, 0x01, 0x15, 0x15]))
+            .await
             .unwrap();
         let dp15 = sent_dps(&robot)["dps"]["15"].as_str().unwrap().to_owned();
         assert!(
@@ -838,27 +840,27 @@ mod tests {
         );
     }
 
-    #[test]
-    fn send_raw_command_returns_sweeper_response() {
+    #[tokio::test]
+    async fn send_raw_command_returns_sweeper_response() {
         let mut robot = mock_robot(vec![
             ok_packet(b"{}"),
             ok_packet(br#"{"dps":{"15":"qgAEFQEBBBs="}}"#),
             Err(DeviceError::Timeout),
         ]);
-        let msg = robot.send_raw_command(0x15, &[]).unwrap().unwrap();
+        let msg = robot.send_raw_command(0x15, &[]).await.unwrap().unwrap();
         assert_eq!(msg.cmd, 0x15);
     }
 
-    #[test]
-    fn send_raw_command_no_response() {
+    #[tokio::test]
+    async fn send_raw_command_no_response() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        assert!(robot.send_raw_command(0x15, &[]).unwrap().is_none());
+        assert!(robot.send_raw_command(0x15, &[]).await.unwrap().is_none());
     }
 
-    #[test]
-    fn query_room_status_sends_query_frame() {
+    #[tokio::test]
+    async fn query_room_status_sends_query_frame() {
         let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
-        assert!(robot.query_room_status().unwrap().is_none());
+        assert!(robot.query_room_status().await.unwrap().is_none());
         assert!(sent_dps(&robot)["dps"]["15"].is_string());
     }
 }
