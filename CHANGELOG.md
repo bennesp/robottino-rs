@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-05
+
+### Fixed
+
+- docs.rs now builds with all features enabled — `CloudXPlorer` and cloud API modules are no longer missing from the generated documentation
+
 ## [0.2.0] - 2026-03-05
 
 ### Changed
@@ -60,5 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cloud` feature: pre-filled OEM credentials for the X-Plorer app
 - 8 runnable examples: discover, robot_status, clean_rooms, clean_zone, forbidden_zone, go_home, locate_robot, download_map
 
+[0.2.1]: https://github.com/bennesp/robottino-rs/compare/xplorer-rs-v0.2.0...xplorer-rs-v0.2.1
 [0.2.0]: https://github.com/bennesp/robottino-rs/compare/xplorer-rs-v0.1.0...xplorer-rs-v0.2.0
 [0.1.0]: https://github.com/bennesp/robottino-rs/releases/tag/xplorer-rs-v0.1.0
