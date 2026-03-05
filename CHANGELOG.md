@@ -60,5 +60,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cloud` feature: pre-filled OEM credentials for the X-Plorer app
 - 8 runnable examples: discover, robot_status, clean_rooms, clean_zone, forbidden_zone, go_home, locate_robot, download_map
 
-[0.2.0]: https://github.com/bennesp/robottino-rs/releases/tag/v0.2.0
-[0.1.0]: https://github.com/bennesp/robottino-rs/releases/tag/v0.1.0
+[0.2.0]: https://github.com/bennesp/robottino-rs/compare/xplorer-rs-v0.1.0...xplorer-rs-v0.2.0
+[0.1.0]: https://github.com/bennesp/robottino-rs/releases/tag/xplorer-rs-v0.1.0
