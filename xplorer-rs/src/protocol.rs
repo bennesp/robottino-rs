@@ -51,6 +51,8 @@ pub enum CommandType {
     SetZoneClean = 0x28,
     /// Zone clean status response (0x29).
     ZoneCleanStatus = 0x29,
+    /// Go to a specific point on the map (0x16).
+    GotoPoint = 0x16,
     /// Custom data transfer (0x31).
     CustomizeData = 0x31,
 }
@@ -441,6 +443,57 @@ impl VirtualWallCommand {
     }
 }
 
+/// A goto point command to send via DP 15 (cmd 0x16).
+///
+/// Sends the robot to a specific point on the map. The robot navigates there,
+/// sets DP 4 to `pose`/`part` and DP 5 to `goto_pos`, then pauses at the target.
+///
+/// Coordinates use the same system as zone cleaning (route points × 10).
+/// To convert from map pixel coordinates:
+///
+/// ```text
+/// robot_x = pixel_x * 10 - origin_x
+/// robot_y = origin_y - pixel_y * 10
+/// ```
+///
+/// where `origin_x`/`origin_y` come from the layout header.
+///
+/// # Examples
+///
+/// ```
+/// use xplorer_rs::protocol::GotoPointCommand;
+///
+/// let cmd = GotoPointCommand { x: 200, y: -50 };
+/// let bytes = cmd.encode();
+/// assert_eq!(bytes[0], 0xAA);
+/// assert_eq!(bytes[3], 0x16); // goto point command
+///
+/// let b64 = cmd.encode_base64();
+/// assert!(!b64.is_empty());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GotoPointCommand {
+    /// X coordinate in robot units (route × 10).
+    pub x: i16,
+    /// Y coordinate in robot units (route × 10).
+    pub y: i16,
+}
+
+impl GotoPointCommand {
+    /// Encode to raw bytes: `aa <len_2byte_BE> 0x16 <x_hi> <x_lo> <y_hi> <y_lo> <checksum>`
+    pub fn encode(&self) -> Vec<u8> {
+        let mut data = Vec::with_capacity(4);
+        data.extend_from_slice(&self.x.to_be_bytes());
+        data.extend_from_slice(&self.y.to_be_bytes());
+        build_sweeper_frame(0x16, &data)
+    }
+
+    /// Encode and return as base64 string.
+    pub fn encode_base64(&self) -> String {
+        base64::engine::general_purpose::STANDARD.encode(self.encode())
+    }
+}
+
 /// Build a raw sweeper frame: `0xAA` + length(2 BE) + cmd + data + checksum.
 ///
 /// Used by both local and cloud device implementations to encode DP 15 commands.
@@ -676,6 +729,66 @@ mod tests {
 
         let msg2 = SweeperMessage::decode_base64(&b64).unwrap();
         assert_eq!(msg, msg2);
+    }
+
+    // ── Goto point (cmd 0x16) ──────────────────────────────────
+
+    #[test]
+    fn goto_point_encode() {
+        let cmd = GotoPointCommand { x: 645, y: -651 };
+        let encoded = cmd.encode();
+        assert_eq!(encoded[0], 0xAA);
+        assert_eq!(encoded[1], 0x00);
+        assert_eq!(encoded[2], 0x05); // payload = 1 (cmd) + 4 (coords) = 5
+        assert_eq!(encoded[3], 0x16); // cmd
+        assert_eq!(encoded[4], 0x02); // x hi
+        assert_eq!(encoded[5], 0x85); // x lo (645 = 0x0285)
+        assert_eq!(encoded[6], 0xFD); // y hi
+        assert_eq!(encoded[7], 0x75); // y lo (-651 = 0xFD75)
+        // checksum
+        let sum: u16 = encoded[3..encoded.len() - 1].iter().map(|&b| b as u16).sum();
+        assert_eq!(encoded[8], (sum & 0xFF) as u8);
+    }
+
+    #[test]
+    fn goto_point_encode_origin() {
+        let cmd = GotoPointCommand { x: 0, y: 0 };
+        let encoded = cmd.encode();
+        assert_eq!(encoded[3], 0x16);
+        assert_eq!(encoded[4..8], [0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn goto_point_encode_negative() {
+        let cmd = GotoPointCommand { x: -43, y: -180 };
+        let encoded = cmd.encode();
+        assert_eq!(encoded[4], 0xFF);
+        assert_eq!(encoded[5], 0xD5); // -43 = 0xFFD5
+        assert_eq!(encoded[6], 0xFF);
+        assert_eq!(encoded[7], 0x4C); // -180 = 0xFF4C
+    }
+
+    #[test]
+    fn goto_point_encode_decode_roundtrip() {
+        let cmd = GotoPointCommand { x: 300, y: -100 };
+        let encoded = cmd.encode();
+        let msg = SweeperMessage::decode(&encoded).unwrap();
+        assert!(msg.checksum_ok);
+        assert_eq!(msg.cmd, 0x16);
+        assert_eq!(msg.data.len(), 4);
+        let x = i16::from_be_bytes([msg.data[0], msg.data[1]]);
+        let y = i16::from_be_bytes([msg.data[2], msg.data[3]]);
+        assert_eq!(x, 300);
+        assert_eq!(y, -100);
+    }
+
+    #[test]
+    fn goto_point_base64_roundtrip() {
+        let cmd = GotoPointCommand { x: 200, y: -50 };
+        let b64 = cmd.encode_base64();
+        let msg = SweeperMessage::decode_base64(&b64).unwrap();
+        assert_eq!(msg.cmd, 0x16);
+        assert!(msg.checksum_ok);
     }
 
     // ── Zone clean ──────────────────────────────────────────────

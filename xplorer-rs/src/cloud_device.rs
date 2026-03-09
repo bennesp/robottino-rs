@@ -14,8 +14,9 @@ use tuya_rs::connection::DeviceError;
 
 use crate::device::Device;
 use crate::protocol::{
-    ForbiddenZone, ForbiddenZoneCommand, RoomCleanCommand, RoomCleanStatusResponse, SweeperMessage,
-    VirtualWallCommand, Wall, ZoneCleanCommand, build_sweeper_frame,
+    ForbiddenZone, ForbiddenZoneCommand, GotoPointCommand, RoomCleanCommand,
+    RoomCleanStatusResponse, SweeperMessage, VirtualWallCommand, Wall, ZoneCleanCommand,
+    build_sweeper_frame,
 };
 use crate::types::*;
 
@@ -172,6 +173,11 @@ impl<H: HttpClient> Device for CloudXPlorer<H> {
         self.publish(json!({"15": b64})).await?;
         // Cloud API doesn't return immediate sweeper responses
         Ok(None)
+    }
+
+    async fn goto_point(&mut self, cmd: &GotoPointCommand) -> Result<(), DeviceError> {
+        let b64 = cmd.encode_base64();
+        self.publish(json!({"15": b64})).await
     }
 
     async fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError> {
@@ -440,6 +446,13 @@ mod tests {
     async fn set_mode_publishes_dp4() {
         let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
         robot.set_mode(Mode::Smart).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn goto_point_publishes_dp15() {
+        let mut robot = mock_cloud(vec![r#"{"result":true}"#]);
+        let cmd = crate::protocol::GotoPointCommand { x: 300, y: -100 };
+        robot.goto_point(&cmd).await.unwrap();
     }
 
     #[tokio::test]

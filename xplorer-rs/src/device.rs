@@ -9,8 +9,9 @@ use tuya_rs::connection::{
 };
 
 use crate::protocol::{
-    ForbiddenZone, ForbiddenZoneCommand, RoomCleanCommand, RoomCleanStatusResponse, SweeperMessage,
-    VirtualWallCommand, Wall, ZoneCleanCommand, build_sweeper_frame,
+    ForbiddenZone, ForbiddenZoneCommand, GotoPointCommand, RoomCleanCommand,
+    RoomCleanStatusResponse, SweeperMessage, VirtualWallCommand, Wall, ZoneCleanCommand,
+    build_sweeper_frame,
 };
 use crate::types::*;
 
@@ -57,6 +58,8 @@ pub trait Device {
         &mut self,
         cmd: &RoomCleanCommand,
     ) -> Result<Option<RoomCleanStatusResponse>, DeviceError>;
+    /// Send the robot to a specific point on the map (cmd 0x16).
+    async fn goto_point(&mut self, cmd: &GotoPointCommand) -> Result<(), DeviceError>;
     /// Start zone-based cleaning for the specified rectangular zones.
     async fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError>;
     /// Set forbidden zones (no-go, no-sweep, no-mop areas).
@@ -284,6 +287,13 @@ impl<T: Transport> Device for LocalXPlorer<T> {
         let b64 = cmd.encode_base64();
         self.set_dp(15, json!(b64))?;
         Ok(self.drain_sweeper_response())
+    }
+
+    async fn goto_point(&mut self, cmd: &GotoPointCommand) -> Result<(), DeviceError> {
+        let b64 = cmd.encode_base64();
+        self.set_dp(15, json!(b64))?;
+        self.drain_status();
+        Ok(())
     }
 
     async fn clean_zone(&mut self, cmd: &ZoneCleanCommand) -> Result<(), DeviceError> {
@@ -748,6 +758,14 @@ mod tests {
         let resp = robot.clean_rooms(&cmd).await.unwrap();
         assert!(resp.is_some());
         assert_eq!(resp.unwrap().clean_times, 1);
+    }
+
+    #[tokio::test]
+    async fn goto_point_sends_dp15() {
+        let cmd = crate::protocol::GotoPointCommand { x: 645, y: -651 };
+        let mut robot = mock_robot(vec![ok_packet(b"{}"), Err(DeviceError::Timeout)]);
+        robot.goto_point(&cmd).await.unwrap();
+        assert!(sent_dps(&robot)["dps"]["15"].is_string());
     }
 
     #[tokio::test]
