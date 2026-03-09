@@ -1,5 +1,5 @@
 use aes::Aes128;
-use cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
+use cipher::{BlockCipherDecrypt, BlockCipherEncrypt, KeyInit};
 use thiserror::Error;
 
 /// Cryptographic operation errors.
@@ -35,11 +35,9 @@ pub fn aes_ecb_encrypt(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
     padded.extend_from_slice(data);
     padded.resize(data.len() + pad_len, pad_len as u8);
 
-    // Encrypt each 16-byte block
-    for chunk in padded.chunks_exact_mut(16) {
-        let block = cipher::generic_array::GenericArray::from_mut_slice(chunk);
-        cipher.encrypt_block(block);
-    }
+    // Encrypt all 16-byte blocks
+    let (blocks, _) = cipher::Array::slice_as_chunks_mut(&mut padded);
+    cipher.encrypt_blocks(blocks);
 
     padded
 }
@@ -64,13 +62,12 @@ pub fn aes_ecb_decrypt(key: &[u8; 16], data: &[u8]) -> Result<Vec<u8>, CryptoErr
     let cipher = Aes128::new(key.into());
     let mut buf = data.to_vec();
 
-    for chunk in buf.chunks_exact_mut(16) {
-        let block = cipher::generic_array::GenericArray::from_mut_slice(chunk);
-        cipher.decrypt_block(block);
-    }
+    let (blocks, _) = cipher::Array::slice_as_chunks_mut(&mut buf);
+    cipher.decrypt_blocks(blocks);
 
     // Remove PKCS7 padding
-    let pad_byte = *buf.last().unwrap();
+    // Safety: buf is non-empty (early return above rejects empty input)
+    let &pad_byte = buf.last().ok_or(CryptoError::InvalidPadding)?;
     if pad_byte == 0 || pad_byte as usize > 16 {
         return Err(CryptoError::InvalidPadding);
     }

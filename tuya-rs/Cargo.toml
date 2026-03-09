@@ -16,8 +16,8 @@ exclude = ["tests/", "testdata/"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-aes = "0.8"
-cipher = "0.4"
+aes = "0.9.0-rc.4"
+cipher = "0.5"
 thiserror = "2"
 crc32fast = "1"
 md-5 = "0.10"
