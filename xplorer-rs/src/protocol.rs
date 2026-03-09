@@ -746,7 +746,10 @@ mod tests {
         assert_eq!(encoded[6], 0xFD); // y hi
         assert_eq!(encoded[7], 0x75); // y lo (-651 = 0xFD75)
         // checksum
-        let sum: u16 = encoded[3..encoded.len() - 1].iter().map(|&b| b as u16).sum();
+        let sum: u16 = encoded[3..encoded.len() - 1]
+            .iter()
+            .map(|&b| b as u16)
+            .sum();
         assert_eq!(encoded[8], (sum & 0xFF) as u8);
     }
 
