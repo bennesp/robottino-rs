@@ -14,12 +14,9 @@ Commands:
   status       Show device status
   power_on     Turn the vacuum on
   power_off    Turn the vacuum off
-  pause        Pause cleaning
-  resume       Resume cleaning
   go_home      Send to charging dock
   locate       Make the vacuum beep
   clean_rooms  Clean specific rooms (e.g. clean_rooms 0 2 5)
-               Optional: --times N for multiple passes (default 1)
   goto_point   Go to a map point (e.g. goto_point 645 -651)
 
 Env: DEVICE_IP, DEVICE_ID, LOCAL_KEY";
@@ -53,8 +50,6 @@ async fn main() {
                 std::process::exit(1);
             });
             println!("OK\n");
-            println!("  Power:       {}", if state.power { "on" } else { "off" });
-            println!("  Running:     {}", if state.start { "yes" } else { "no" });
             println!("  Status:      {}", state.status);
             println!("  Mode:        {}", state.mode);
             println!("  Battery:     {}%", state.battery);
@@ -72,13 +67,6 @@ async fn main() {
                     format!("code {}", state.fault)
                 }
             );
-            println!("  Volume:      {}", state.volume);
-            println!("  DnD:         {}", if state.dnd { "on" } else { "off" });
-            println!("  Env:         {}", if state.env_settings { "on" } else { "off" });
-            println!();
-            let bm = state.map_bitmap;
-            println!("  Map:         map={} cleaning={} split={} merge={}",
-                bm.map(), bm.cleaning(), bm.split(), bm.merger());
             println!();
             println!("  Consumables:");
             println!(
@@ -117,22 +105,6 @@ async fn main() {
             });
             println!("OK");
         }
-        "pause" => {
-            print!("Pausing... ");
-            robot.pause().await.unwrap_or_else(|e| {
-                eprintln!("FAILED: {e}");
-                std::process::exit(1);
-            });
-            println!("OK");
-        }
-        "resume" => {
-            print!("Resuming... ");
-            robot.resume().await.unwrap_or_else(|e| {
-                eprintln!("FAILED: {e}");
-                std::process::exit(1);
-            });
-            println!("OK");
-        }
         "go_home" => {
             print!("Sending go home... ");
             robot.charge_go().await.unwrap_or_else(|e| {
@@ -150,36 +122,24 @@ async fn main() {
             println!("ACK (vacuum should beep now)");
         }
         "clean_rooms" => {
-            let mut room_ids = Vec::new();
-            let mut clean_times: u8 = 1;
-            let mut i = 1;
-            while i < args.len() {
-                if args[i] == "--times" {
-                    i += 1;
-                    clean_times = args.get(i).unwrap_or_else(|| {
-                        eprintln!("--times requires a value");
+            let room_ids: Vec<u8> = args[1..]
+                .iter()
+                .map(|s| {
+                    s.parse::<u8>().unwrap_or_else(|_| {
+                        eprintln!("Invalid room ID: {s} (expected a number 0-255)");
                         std::process::exit(1);
-                    }).parse::<u8>().unwrap_or_else(|_| {
-                        eprintln!("Invalid --times value: {}", args[i]);
-                        std::process::exit(1);
-                    });
-                } else {
-                    room_ids.push(args[i].parse::<u8>().unwrap_or_else(|_| {
-                        eprintln!("Invalid room ID: {} (expected a number 0-255)", args[i]);
-                        std::process::exit(1);
-                    }));
-                }
-                i += 1;
-            }
+                    })
+                })
+                .collect();
 
             if room_ids.is_empty() {
                 eprintln!("No room IDs specified.");
-                eprintln!("Usage: local_control clean_rooms 0 2 5 [--times N]");
+                eprintln!("Usage: local_control clean_rooms 0 2 5");
                 std::process::exit(1);
             }
 
             let cmd = RoomCleanCommand {
-                clean_times,
+                clean_times: 1,
                 room_ids: room_ids.clone(),
             };
 

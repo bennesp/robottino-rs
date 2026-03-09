@@ -41,6 +41,8 @@ pub enum CommandType {
     SetRoomClean = 0x14,
     /// Room clean status response (0x15).
     RoomCleanStatus = 0x15,
+    /// Go to a specific point on the map (0x16).
+    GotoPoint = 0x16,
     /// Request area clean (0x17).
     RequestAreaClean = 0x17,
     /// Set forbidden zones (0x1A).
@@ -51,8 +53,6 @@ pub enum CommandType {
     SetZoneClean = 0x28,
     /// Zone clean status response (0x29).
     ZoneCleanStatus = 0x29,
-    /// Go to a specific point on the map (0x16).
-    GotoPoint = 0x16,
     /// Custom data transfer (0x31).
     CustomizeData = 0x31,
 }
