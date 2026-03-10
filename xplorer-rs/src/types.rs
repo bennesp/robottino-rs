@@ -105,6 +105,10 @@ pub enum Status {
     Fault,
     /// Smart mode active.
     Smart,
+    /// Navigating to a specific point (goto_pos).
+    GotoPos,
+    /// Point/partial cleaning active.
+    PartClean,
 }
 
 impl Status {
@@ -120,6 +124,8 @@ impl Status {
             Status::Paused => "paused",
             Status::Fault => "fault",
             Status::Smart => "smart",
+            Status::GotoPos => "goto_pos",
+            Status::PartClean => "part_clean",
         }
     }
 }
@@ -137,6 +143,8 @@ impl TryFrom<&str> for Status {
             "paused" => Ok(Status::Paused),
             "fault" => Ok(Status::Fault),
             "smart" => Ok(Status::Smart),
+            "goto_pos" => Ok(Status::GotoPos),
+            "part_clean" => Ok(Status::PartClean),
             _ => Err(ParseError::UnknownVariant(s.to_string())),
         }
     }

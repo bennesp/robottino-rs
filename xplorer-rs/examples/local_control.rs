@@ -4,7 +4,7 @@
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- power_on
 //!   DEVICE_IP=... DEVICE_ID=... LOCAL_KEY=... cargo run --example local_control -- clean_rooms 0 2
 
-use xplorer_rs::protocol::RoomCleanCommand;
+use xplorer_rs::protocol::{GotoPointCommand, RoomCleanCommand};
 use xplorer_rs::{Device, DeviceConfig, LocalXPlorer};
 
 const USAGE: &str = "\
@@ -17,6 +17,7 @@ Commands:
   go_home      Send to charging dock
   locate       Make the vacuum beep
   clean_rooms  Clean specific rooms (e.g. clean_rooms 0 2 5)
+  goto_point   Go to a map point (e.g. goto_point 645 -651)
 
 Env: DEVICE_IP, DEVICE_ID, LOCAL_KEY";
 
@@ -157,6 +158,24 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        "goto_point" => {
+            let x: i16 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or_else(|| {
+                eprintln!("Usage: local_control goto_point <x> <y>");
+                std::process::exit(1);
+            });
+            let y: i16 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or_else(|| {
+                eprintln!("Usage: local_control goto_point <x> <y>");
+                std::process::exit(1);
+            });
+
+            let cmd = GotoPointCommand { x, y };
+            print!("Going to ({x}, {y})... ");
+            robot.goto_point(&cmd).await.unwrap_or_else(|e| {
+                eprintln!("FAILED: {e}");
+                std::process::exit(1);
+            });
+            println!("ACK (robot navigating to target)");
         }
         _ => {
             eprintln!("Unknown command: {command}");
