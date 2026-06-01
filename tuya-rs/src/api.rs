@@ -262,7 +262,7 @@ pub fn generate_presigned_url(
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
-    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC key");
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC-SHA256 accepts any key length");
     mac.update(data);
     mac.finalize().into_bytes().to_vec()
 }
@@ -410,7 +410,7 @@ impl<H: HttpClient> TuyaOemApi<H> {
     ) -> Result<String, ApiError> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock is before UNIX epoch")
             .as_secs()
             .to_string();
         let request_id = uuid::Uuid::new_v4().to_string();

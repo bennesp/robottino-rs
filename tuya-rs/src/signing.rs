@@ -71,8 +71,8 @@ pub fn build_sign_string(params: &[(&str, &str)]) -> String {
 
 /// Compute HMAC-SHA256 signature, returning lowercase hex.
 pub fn compute_sign(sign_string: &str, hmac_key: &str) -> String {
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(hmac_key.as_bytes()).expect("HMAC accepts any key length");
+    let mut mac = Hmac::<Sha256>::new_from_slice(hmac_key.as_bytes())
+        .expect("HMAC-SHA256 accepts any key length");
     mac.update(sign_string.as_bytes());
     let result = mac.finalize();
     crate::crypto::hex_encode(&result.into_bytes())
