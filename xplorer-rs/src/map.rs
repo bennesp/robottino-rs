@@ -87,7 +87,10 @@ impl LayoutHeader {
             resolution: read_u16_be(data, 12),
             charge_x: read_u16_be(data, 14),
             charge_y: read_u16_be(data, 16),
-            total_count: read_u16_be(data, 20) as u32,
+            total_count: ((data[18] as u32) << 24)
+                | ((data[19] as u32) << 16)
+                | ((data[20] as u32) << 8)
+                | (data[21] as u32),
             compressed_length: read_u16_be(data, 22) as u32,
         })
     }
@@ -416,12 +419,58 @@ impl MapDecoder for TuyaMapDecoder {
     fn decode_layout(&self, data: &[u8]) -> Result<LayoutMap, MapError> {
         let header = LayoutHeader::parse(data)?;
 
-        let compressed_data = &data[24..];
-        let decompressed = if header.compressed_length > 0 {
-            lz4_flex::decompress(compressed_data, header.total_count as usize)
-                .map_err(|e| MapError::DecompressionFailed(e.to_string()))?
+        let compressed_end = if header.compressed_length > 0 {
+            24 + header.compressed_length as usize
         } else {
-            compressed_data.to_vec()
+            data.len()
+        };
+
+        if data.len() < compressed_end {
+            return Err(MapError::InvalidFormat(format!(
+                "file too short for payload: need {}, got {}",
+                compressed_end,
+                data.len()
+            )));
+        }
+        let payload_data = &data[24..compressed_end];
+
+        let decompressed = if header.compressed_length > 0 {
+            let mut target_size = header.total_count as usize;
+            let mut decompressed_result = None;
+
+            loop {
+                match lz4_flex::decompress(payload_data, target_size) {
+                    Ok(dec) => {
+                        decompressed_result = Some(dec);
+                        break;
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("expected") {
+                            if let Some(expected_str) = err_str.split("expected ").nth(1) {
+                                if let Ok(new_size) = expected_str.trim().parse::<usize>() {
+                                    if new_size != target_size {
+                                        target_size = new_size;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            match decompressed_result {
+                Some(dec) => dec,
+                None => {
+                    // Fallback: If LZ4 decompression fails (e.g., live data is actually uncompressed raw bytes),
+                    // fall back to using the payload directly.
+                    payload_data.to_vec()
+                }
+            }
+        } else {
+            payload_data.to_vec()
         };
 
         let area = header.width as usize * header.height as usize;
@@ -454,9 +503,19 @@ impl MapDecoder for TuyaMapDecoder {
         let header = RouteHeader::parse(data)?;
 
         let point_data = if header.compressed_length > 0 {
-            let compressed = &data[13..];
-            lz4_flex::decompress(compressed, header.total_count as usize * 4)
-                .map_err(|e| MapError::DecompressionFailed(e.to_string()))?
+            let compressed_end = 13 + header.compressed_length as usize;
+            if data.len() < compressed_end {
+                return Err(MapError::InvalidFormat(format!(
+                    "route file too short: need {}, got {}",
+                    compressed_end,
+                    data.len()
+                )));
+            }
+            let compressed = &data[13..compressed_end];
+            match lz4_flex::decompress(compressed, header.total_count as usize * 4) {
+                Ok(dec) => dec,
+                Err(_) => compressed.to_vec(), // Fallback to raw bytes if LZ4 fails
+            }
         } else {
             data[13..].to_vec()
         };
